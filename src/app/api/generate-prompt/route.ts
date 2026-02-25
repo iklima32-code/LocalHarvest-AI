@@ -15,8 +15,6 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "GEMINI_API_KEY not found" }, { status: 500 });
         }
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
         const prompt = `You are an expert at creating descriptive image generation prompts for DALL-E/Midjourney.
         Based on this harvest data, create a single, detailed, photorealistic prompt for an image of the harvest.
         
@@ -32,11 +30,50 @@ export async function POST(req: Request) {
         3. Do NOT include technical parameters like --ar or --v.
         4. Return ONLY the prompt text.`;
 
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text().trim();
+        // TIERED MODELS - Cycle through available Gemini models to bypass 429 quotas
+        const modelsToTry = [
+            "gemini-2.5-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash-exp"
+        ];
 
-        return NextResponse.json({ prompt: text });
+        for (const modelName of modelsToTry) {
+            try {
+                console.log(`Attempting prompt generation with: ${modelName}`);
+                const model = genAI.getGenerativeModel({ model: modelName });
+                const result = await model.generateContent(prompt);
+                const response = await result.response;
+                const text = response.text().trim();
+
+                if (text) {
+                    return NextResponse.json({
+                        prompt: text,
+                        source: modelName
+                    });
+                }
+            } catch (error: any) {
+                console.warn(`Model ${modelName} hit an error during prompt generation:`, error.message);
+                // Continue to next model if it's a quota or transient error
+                continue;
+            }
+        }
+
+        // TIER 3 - SMART TEMPLATE FALLBACK
+        console.log("All AI models failed or hit quota for prompt generation. Falling back to template.");
+
+        const type = harvestData.produceType;
+        const varietyStr = harvestData.variety ? `${harvestData.variety} ` : "";
+        const quantityStr = harvestData.quantity ? `${harvestData.quantity} ${harvestData.unit} of ` : "A bountiful harvest of ";
+
+        const fallbackPrompt = `A high-resolution, photorealistic close-up of ${quantityStr}${varietyStr}${type}, freshly harvested and resting in a rustic wooden crate, illuminated by soft morning sunlight with natural morning dew and authentic textures.`;
+
+        return NextResponse.json({
+            prompt: fallbackPrompt,
+            source: "Template Fallback",
+            warning: "Displaying a curated prompt template because AI engines are currently at capacity."
+        });
+
     } catch (error: any) {
         console.error("Prompt Generation Error:", error);
         return NextResponse.json({ error: error.message || "Failed to generate prompt" }, { status: 500 });

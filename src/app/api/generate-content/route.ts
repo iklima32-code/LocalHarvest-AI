@@ -17,13 +17,6 @@ export async function POST(req: Request) {
             }, { status: 500 });
         }
 
-        const model = genAI.getGenerativeModel({
-            model: "gemini-2.5-flash",
-            generationConfig: {
-                responseMimeType: "application/json",
-            }
-        });
-
         const longCopyInstructions = `
       Recommended Structure (High-Performing Long Copy)
       Instead of counting sentences, focus on scroll behavior and readability.
@@ -39,12 +32,6 @@ export async function POST(req: Request) {
       3. Authority / Insight (3–6 sentences): Educate. Position yourself as the expert local farmer. Relate this back to the specific harvest. Use bullet points occasionally.
       4. Offer / Soft CTA (1–3 sentences): No hard sell. Invite conversation. End with a soft question.
       * Be sure to use a few relevant emojis naturally throughout the copy.
-
-      What NOT to Do:
-      - NO 30+ sentence essays
-      - NO 5–8 line paragraphs
-      - NO Overly technical language
-      - NO Hard pitch at the top
         `;
 
         const toneInstructions = harvestData.contentLength === 'short'
@@ -68,28 +55,87 @@ export async function POST(req: Request) {
           "recommended": boolean (Make ONLY ONE of the 3 options recommended: true)
         }
       ]`;
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
-        const usage = response.usageMetadata;
 
-        try {
-            const options = JSON.parse(text);
-            return NextResponse.json({
-                options,
-                usage: {
-                    promptTokens: usage?.promptTokenCount,
-                    completionTokens: usage?.candidatesTokenCount,
-                    totalTokens: usage?.totalTokenCount
+        // TIERED MODELS - Cycle through available Gemini models to bypass 429 quotas
+        const modelsToTry = [
+            "gemini-2.5-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash-exp"
+        ];
+
+        let lastError = null;
+        for (const modelName of modelsToTry) {
+            try {
+                console.log(`Attempting content generation with: ${modelName}`);
+                const model = genAI.getGenerativeModel({
+                    model: modelName,
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                    }
+                });
+
+                const result = await model.generateContent(prompt);
+                const response = await result.response;
+                const text = response.text();
+                const usage = response.usageMetadata;
+
+                try {
+                    const options = JSON.parse(text);
+                    return NextResponse.json({
+                        options,
+                        source: modelName,
+                        usage: {
+                            promptTokens: usage?.promptTokenCount,
+                            completionTokens: usage?.candidatesTokenCount,
+                            totalTokens: usage?.totalTokenCount
+                        }
+                    });
+                } catch (parseError) {
+                    console.error(`Model ${modelName} failed to return valid JSON:`, text);
+                    continue; // Try next model
                 }
-            });
-        } catch (parseError) {
-            console.error("Failed to parse AI response as JSON:", text);
-            return NextResponse.json({ error: "AI failed to generate a valid JSON response. Please try again." }, { status: 500 });
+            } catch (error: any) {
+                console.warn(`Model ${modelName} hit an error:`, error.message);
+                lastError = error;
+                // If it's a 429 (Quota) or other transient error, continue to next model
+                continue;
+            }
         }
 
+        // TIER 3 - SMARTER FALLBACK (Human-written Templates)
+        console.log("All AI models failed or hit quota. Falling back to templates.");
+
+        const type = harvestData.produceType;
+        const varietyStr = harvestData.variety ? ` (${harvestData.variety})` : "";
+
+        const fallbackOptions = [
+            {
+                caption: `Freshly harvested today! 🌿 Our ${type}${varietyStr} is looking absolutely beautiful and ready for your kitchen. Nothing beats the taste of produce that was still in the soil just hours ago. Who else is planning their meals around what's fresh this week?`,
+                hashtags: `#localharvest #freshpicked #${type.toLowerCase().replace(/\s+/g, '')} #farmtotable`,
+                recommended: true
+            },
+            {
+                caption: `Bounty of the day: ${harvestData.quantity || ""} ${harvestData.unit || ""} of fresh ${type}${varietyStr}! ✨ We put a lot of love into growing these, and it's so rewarding to see them reach peak perfection. Come grab some while they're still morning-fresh!`,
+                hashtags: `#farmlife #harvestday #supportlocal #healthyfood`,
+                recommended: false
+            },
+            {
+                caption: `Just hauled in a fresh batch of ${type}! The colors and aroma are incredible. Truly the best part of our day is sharing this organic goodness with our local community. What's your favorite way to prepare ${type}?`,
+                hashtags: `#organic #${type.toLowerCase().replace(/\s+/g, '')} #eatlocal #harvestnotes`,
+                recommended: false
+            }
+        ];
+
+        return NextResponse.json({
+            options: fallbackOptions,
+            source: "Template Fallback",
+            warning: "Displaying curated templates because AI engines are currently at capacity.",
+            usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+        });
+
     } catch (error: any) {
-        console.error("AI Generation Error:", error);
+        console.error("Critical Route Error:", error);
         return NextResponse.json({ error: error.message || "Failed to generate content" }, { status: 500 });
     }
 }

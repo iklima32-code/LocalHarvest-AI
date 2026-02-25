@@ -26,9 +26,10 @@ const mockOptions = [
 
 export default function HarvestContent() {
     const router = useRouter();
-    const { formData: harvestData, clearHarvest } = useHarvest();
+    const { formData: harvestData, photos, clearHarvest } = useHarvest();
     const [options, setOptions] = useState<any[]>(mockOptions);
     const [usage, setUsage] = useState<any>(null);
+    const [source, setSource] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isGenerating, setIsGenerating] = useState(true);
     const [selectedOption, setSelectedOption] = useState(0);
@@ -86,6 +87,7 @@ export default function HarvestContent() {
                 // Also reset selected option so the top one is selected by default
                 setSelectedOption(0);
                 setUsage(data.usage);
+                setSource(data.source);
             } else {
                 throw new Error("Invalid response format from AI");
             }
@@ -150,25 +152,38 @@ export default function HarvestContent() {
                     </div>
 
                     <div className="max-w-4xl mx-auto space-y-8">
-                        {/* Harvest Summary Card */}
-                        {harvestData && (
-                            <div className="bg-gray-50 border-2 border-gray-100 rounded-2xl p-6 flex flex-wrap gap-8 items-center shadow-sm">
-                                <div className="flex-1">
-                                    <div className="text-xs font-bold text-harvest-green uppercase tracking-wider mb-2">Harvest Summary</div>
-                                    <h4 className="text-xl font-bold text-gray-800">
-                                        {harvestData.quantity && `${harvestData.quantity} ${harvestData.unit} of `}
-                                        {harvestData.variety} {harvestData.produceType}
-                                    </h4>
-                                    {harvestData.notes && (
-                                        <p className="text-sm text-gray-500 mt-2 italic line-clamp-2">"{harvestData.notes}"</p>
-                                    )}
+                        {/* Harvest Summary Card with Photos */}
+                        <div className="flex flex-col md:flex-row gap-6">
+                            {harvestData && (
+                                <div className="flex-1 bg-gray-50 border-2 border-gray-100 rounded-2xl p-6 flex flex-wrap gap-8 items-center shadow-sm">
+                                    <div className="flex-1">
+                                        <div className="text-xs font-bold text-harvest-green uppercase tracking-wider mb-2">Harvest Summary</div>
+                                        <h4 className="text-xl font-bold text-gray-800">
+                                            {harvestData.quantity && `${harvestData.quantity} ${harvestData.unit} of `}
+                                            {harvestData.variety} {harvestData.produceType}
+                                        </h4>
+                                        {harvestData.notes && (
+                                            <p className="text-sm text-gray-500 mt-2 italic line-clamp-2">"{harvestData.notes}"</p>
+                                        )}
+                                    </div>
+                                    <div className="bg-white px-4 py-2 rounded-lg border border-gray-200">
+                                        <div className="text-[10px] text-gray-400 font-bold uppercase">Style</div>
+                                        <div className="text-sm font-bold text-gray-700 capitalize">{harvestData.contentLength} Copy</div>
+                                    </div>
                                 </div>
-                                <div className="bg-white px-4 py-2 rounded-lg border border-gray-200">
-                                    <div className="text-[10px] text-gray-400 font-bold uppercase">Style</div>
-                                    <div className="text-sm font-bold text-gray-700 capitalize">{harvestData.contentLength} Copy</div>
+                            )}
+
+                            {/* Photos Strip */}
+                            {photos.length > 0 && (
+                                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide md:max-w-[300px]">
+                                    {photos.map((url, i) => (
+                                        <div key={i} className="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border-2 border-white shadow-md">
+                                            <img src={url} alt={`Harvest ${i + 1}`} className="w-full h-full object-cover" />
+                                        </div>
+                                    ))}
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
 
                         <div className="text-center mb-10">
                             <h3 className="text-3xl font-bold mb-3">Select the best caption</h3>
@@ -179,7 +194,7 @@ export default function HarvestContent() {
                             <div className="bg-red-50 border-2 border-red-100 rounded-2xl p-6 text-center">
                                 <div className="text-3xl mb-3">⚠️</div>
                                 <h4 className="text-lg font-bold text-red-700 mb-2">Generation Failed</h4>
-                                <p className="text-sm text-red-600 mb-4">{error}</p>
+                                <p className="text-sm text-red-600 mb-4">You've hit the Gemini free-tier quota (Limit: 20 per minute). Please wait 30 seconds or use the backup templates below.</p>
                                 <button
                                     onClick={() => setRetryCount(prev => prev + 1)}
                                     className="bg-red-600 text-white px-6 py-2 rounded-full font-bold text-sm hover:bg-red-700 transition-all"
@@ -215,11 +230,16 @@ export default function HarvestContent() {
                             ))}
                         </div>
 
-                        {usage && (
-                            <div className="flex justify-center">
+                        {source && (
+                            <div className="flex flex-col items-center gap-2">
                                 <span className="text-[10px] text-gray-400 font-mono tracking-tight bg-gray-50 px-3 py-1 rounded-full border border-gray-100">
-                                    Gemini 2.5 Flash Usage: {usage.promptTokens} prompt + {usage.completionTokens} completion = {usage.totalTokens} total tokens
+                                    Source: {source} {usage?.totalTokens > 0 && `| ${usage.totalTokens} tokens used`}
                                 </span>
+                                {source === "Template Fallback" && (
+                                    <span className="text-[10px] text-amber-500 font-bold italic">
+                                        ⚠️ AI Busy: Showing high-engagement harvest templates
+                                    </span>
+                                )}
                             </div>
                         )}
 

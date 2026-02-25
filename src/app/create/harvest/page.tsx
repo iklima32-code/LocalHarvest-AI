@@ -20,12 +20,16 @@ export default function HarvestWorkflow() {
     const [showPhotoTips, setShowPhotoTips] = useState(false);
     const [imageError, setImageError] = useState<string | null>(null);
     const [imageUsage, setImageUsage] = useState<any>(null);
+    const [generatedSource, setGeneratedSource] = useState<string | null>(null);
+    const [promptSource, setPromptSource] = useState<string | null>(null);
     const [unlockedPhotos, setUnlockedPhotos] = useState<Record<string, boolean>>({});
     const [photoToDelete, setPhotoToDelete] = useState<string | null>(null);
     const [showLockWarning, setShowLockWarning] = useState(false);
     const [galleryFilter, setGalleryFilter] = useState<"all" | "user" | "ai">("all");
     const [isUploadingAi, setIsUploadingAi] = useState(false);
     const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [successMessage, setSuccessMessage] = useState("");
 
     const [errors, setErrors] = useState({
         produceType: false,
@@ -158,6 +162,7 @@ export default function HarvestWorkflow() {
             const data = await response.json();
             setGeneratedImage(data.url);
             setImageUsage(data.usage);
+            setGeneratedSource(data.source);
         } catch (err: any) {
             console.error("AI image generation error:", err);
             setImageError(err.message || "An unexpected error occurred.");
@@ -186,6 +191,7 @@ export default function HarvestWorkflow() {
 
             if (data.prompt) {
                 setAiPrompt(data.prompt);
+                setPromptSource(data.source);
             }
         } catch (err: any) {
             console.error("Error generating AI prompt:", err);
@@ -567,14 +573,21 @@ export default function HarvestWorkflow() {
                                                 <div className="col-span-2">
                                                     <div className="flex justify-between items-end mb-2">
                                                         <label className="block font-bold text-xs text-gray-500 uppercase tracking-wider">Image Description</label>
-                                                        <button
-                                                            type="button"
-                                                            onClick={generateAIPrompt}
-                                                            disabled={isGeneratingPrompt || !formData.produceType}
-                                                            className="text-[10px] font-black uppercase text-harvest-green hover:bg-harvest-light px-2 py-1 rounded transition-colors flex items-center gap-1 disabled:opacity-30"
-                                                        >
-                                                            {isGeneratingPrompt ? "✨ Magic..." : "✨ Magic Suggest"}
-                                                        </button>
+                                                        <div className="flex items-center gap-2">
+                                                            {promptSource === "Template Fallback" && (
+                                                                <span className="text-[10px] font-bold text-amber-500 italic animate-pulse">
+                                                                    ⚠️ Busy: Using Template
+                                                                </span>
+                                                            )}
+                                                            <button
+                                                                type="button"
+                                                                onClick={generateAIPrompt}
+                                                                disabled={isGeneratingPrompt || !formData.produceType}
+                                                                className="text-[10px] font-black uppercase text-harvest-green hover:bg-harvest-light px-2 py-1 rounded transition-colors flex items-center gap-1 disabled:opacity-30"
+                                                            >
+                                                                {isGeneratingPrompt ? "✨ Magic..." : "✨ Magic Suggest"}
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                     <textarea
                                                         value={aiPrompt}
@@ -621,6 +634,20 @@ export default function HarvestWorkflow() {
                                                         <img src={generatedImage} alt="AI Generated Harvest" className="w-full h-auto" />
                                                     </div>
                                                     <div className="flex flex-col items-center gap-3">
+                                                        {generatedSource && (
+                                                            <div className="flex flex-wrap justify-center gap-4 mb-4">
+                                                                <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-full border border-gray-200">
+                                                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Model</span>
+                                                                    <span className="text-xs font-bold text-gray-700">{generatedSource}</span>
+                                                                </div>
+                                                                {imageUsage && (
+                                                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-full border border-gray-200">
+                                                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Tokens</span>
+                                                                        <span className="text-xs font-bold text-harvest-green">{imageUsage.totalTokens?.toLocaleString()}</span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                         <button
                                                             type="button"
                                                             disabled={isUploadingAi}
@@ -629,7 +656,8 @@ export default function HarvestWorkflow() {
                                                                     setIsUploadingAi(true);
                                                                     const { data: { user } } = await supabase.auth.getUser();
                                                                     if (!user) {
-                                                                        alert("You must be logged in to save AI photos.");
+                                                                        setSuccessMessage("You must be logged in to save AI photos.");
+                                                                        setShowSuccessModal(true);
                                                                         return;
                                                                     }
 
@@ -637,7 +665,8 @@ export default function HarvestWorkflow() {
                                                                     const imgRes = await fetch(generatedImage);
                                                                     if (!imgRes.ok) {
                                                                         setIsUploadingAi(false);
-                                                                        alert("Failed to process image data. Please try generating again.");
+                                                                        setSuccessMessage("Failed to process image data. Please try generating again.");
+                                                                        setShowSuccessModal(true);
                                                                         return;
                                                                     }
 
@@ -646,7 +675,8 @@ export default function HarvestWorkflow() {
                                                                     // Basic check to ensure we aren't uploading an error JSON as an image
                                                                     if (blob.type.includes('json')) {
                                                                         setIsUploadingAi(false);
-                                                                        alert("AI generator returned invalid data. Please try again.");
+                                                                        setSuccessMessage("AI generator returned invalid data. Please try again.");
+                                                                        setShowSuccessModal(true);
                                                                         return;
                                                                     }
 
@@ -659,7 +689,8 @@ export default function HarvestWorkflow() {
                                                                     });
                                                                     if (uploadError) {
                                                                         console.error("Upload error:", uploadError);
-                                                                        alert(`Upload failed: ${uploadError.message}`);
+                                                                        setSuccessMessage(`Upload failed: ${uploadError.message}`);
+                                                                        setShowSuccessModal(true);
                                                                         setIsUploadingAi(false);
                                                                         return;
                                                                     }
@@ -673,10 +704,12 @@ export default function HarvestWorkflow() {
                                                                     setGalleryPhotos([newUrl, ...galleryPhotos]);
                                                                     setPhotos([newUrl, ...photos].slice(0, 4));
                                                                     setGeneratedImage(null);
-                                                                    alert("AI Photo saved to your gallery!");
+                                                                    setSuccessMessage("AI Photo saved to your gallery!");
+                                                                    setShowSuccessModal(true);
                                                                 } catch (err) {
                                                                     console.error("Save AI Photo error:", err);
-                                                                    alert("Failed to save AI photo to gallery.");
+                                                                    setSuccessMessage("Failed to save AI photo to gallery.");
+                                                                    setShowSuccessModal(true);
                                                                 } finally {
                                                                     setIsUploadingAi(false);
                                                                 }
@@ -820,6 +853,30 @@ export default function HarvestWorkflow() {
                                 style={{ backgroundColor: '#739072' }}
                             >
                                 Got it
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Success Modal */}
+            {showSuccessModal && (
+                <div className="fixed inset-0 z-[3000] flex items-center justify-center p-5 bg-black/50 backdrop-blur-md animate-in fade-in duration-300">
+                    <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 relative border border-gray-100">
+                        <div className="text-center">
+                            <div className="w-16 h-16 bg-harvest-green rounded-full flex items-center justify-center mb-6 mx-auto text-white">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            </div>
+
+                            <h3 className="text-xl font-bold text-gray-900 mb-2">Notice</h3>
+                            <p className="text-gray-600 mb-8 whitespace-pre-wrap">
+                                {successMessage}
+                            </p>
+
+                            <button
+                                onClick={() => setShowSuccessModal(false)}
+                                className="w-full bg-harvest-green text-white font-bold py-4 text-lg rounded-xl transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95"
+                            >
+                                Nice!
                             </button>
                         </div>
                     </div>
