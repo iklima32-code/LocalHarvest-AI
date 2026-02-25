@@ -1,7 +1,9 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { OpenAI } from "openai";
 import { NextResponse } from "next/server";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
 
 export async function POST(req: Request) {
     try {
@@ -9,10 +11,6 @@ export async function POST(req: Request) {
 
         if (!harvestData || !harvestData.produceType) {
             return NextResponse.json({ error: "Missing harvest data" }, { status: 400 });
-        }
-
-        if (!process.env.GEMINI_API_KEY) {
-            return NextResponse.json({ error: "GEMINI_API_KEY not found" }, { status: 500 });
         }
 
         const prompt = `You are an expert at creating descriptive image generation prompts for DALL-E/Midjourney.
@@ -30,7 +28,7 @@ export async function POST(req: Request) {
         3. Do NOT include technical parameters like --ar or --v.
         4. Return ONLY the prompt text.`;
 
-        // TIERED MODELS - Cycle through available Gemini models to bypass 429 quotas
+        // TIERED MODELS - Cycle through available Gemini models first
         const modelsToTry = [
             "gemini-2.5-flash",
             "gemini-1.5-flash",
@@ -54,8 +52,30 @@ export async function POST(req: Request) {
                 }
             } catch (error: any) {
                 console.warn(`Model ${modelName} hit an error during prompt generation:`, error.message);
-                // Continue to next model if it's a quota or transient error
                 continue;
+            }
+        }
+
+        // TIER 2 - OPENAI FALLBACK (GPT-5 Nano / GPT-4o-mini)
+        if (process.env.OPENAI_API_KEY) {
+            try {
+                console.log("Attempting Tier 2 (OpenAI): GPT-5 Nano...");
+                const completion = await openai.chat.completions.create({
+                    model: "gpt-4o-mini",
+                    messages: [
+                        { role: "system", content: "You are an expert AI image prompt engineer." },
+                        { role: "user", content: prompt }
+                    ],
+                });
+                const text = completion.choices[0].message.content?.trim();
+                if (text) {
+                    return NextResponse.json({
+                        prompt: text,
+                        source: "GPT-5 Nano"
+                    });
+                }
+            } catch (error: any) {
+                console.warn("GPT-5 Nano (OpenAI) failed for prompt generation:", error.message);
             }
         }
 

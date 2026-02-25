@@ -1,7 +1,9 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { OpenAI } from "openai";
 import { NextResponse } from "next/server";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
 
 export async function POST(req: Request) {
     try {
@@ -9,12 +11,6 @@ export async function POST(req: Request) {
 
         if (!harvestData || !harvestData.produceType) {
             return NextResponse.json({ error: "Missing harvest data" }, { status: 400 });
-        }
-
-        if (!process.env.GEMINI_API_KEY) {
-            return NextResponse.json({
-                error: "GEMINI_API_KEY not found in environment variables. Please add it to your .env file."
-            }, { status: 500 });
         }
 
         const longCopyInstructions = `
@@ -56,7 +52,7 @@ export async function POST(req: Request) {
         }
       ]`;
 
-        // TIERED MODELS - Cycle through available Gemini models to bypass 429 quotas
+        // TIER 1 - Gemini models
         const modelsToTry = [
             "gemini-2.5-flash",
             "gemini-1.5-flash",
@@ -64,7 +60,6 @@ export async function POST(req: Request) {
             "gemini-2.0-flash-exp"
         ];
 
-        let lastError = null;
         for (const modelName of modelsToTry) {
             try {
                 console.log(`Attempting content generation with: ${modelName}`);
@@ -93,13 +88,68 @@ export async function POST(req: Request) {
                     });
                 } catch (parseError) {
                     console.error(`Model ${modelName} failed to return valid JSON:`, text);
-                    continue; // Try next model
+                    continue;
                 }
             } catch (error: any) {
                 console.warn(`Model ${modelName} hit an error:`, error.message);
-                lastError = error;
-                // If it's a 429 (Quota) or other transient error, continue to next model
                 continue;
+            }
+        }
+
+        // TIER 2 - OPENAI FALLBACK (GPT-5 Nano / GPT-4o-mini)
+        if (process.env.OPENAI_API_KEY) {
+            try {
+                console.log("Attempting Tier 2 (OpenAI): GPT-5 Nano...");
+                const completion = await openai.chat.completions.create({
+                    model: "gpt-4o-mini",
+                    messages: [
+                        { role: "system", content: "You are a social media expert for local farmers. Always respond in valid JSON format." },
+                        { role: "user", content: prompt }
+                    ],
+                    response_format: { type: "json_object" }
+                });
+
+                const text = completion.choices[0].message.content;
+                if (text) {
+                    const parsed = JSON.parse(text);
+                    let options = [];
+
+                    // Robust check for the array in various possible keys
+                    if (Array.isArray(parsed)) {
+                        options = parsed;
+                    } else if (parsed.options && Array.isArray(parsed.options)) {
+                        options = parsed.options;
+                    } else if (parsed.captions && Array.isArray(parsed.captions)) {
+                        options = parsed.captions;
+                    } else if (parsed.results && Array.isArray(parsed.results)) {
+                        options = parsed.results;
+                    } else {
+                        // If it's an object containing arrays, use the first array found
+                        const firstArrayKey = Object.keys(parsed).find(key => Array.isArray(parsed[key]));
+                        if (firstArrayKey) {
+                            options = parsed[firstArrayKey];
+                        }
+                    }
+
+                    // Final safety: ensure we have at least something to show
+                    if (options.length > 0) {
+                        return NextResponse.json({
+                            options: options.slice(0, 3).map((opt: any) => ({
+                                caption: opt.caption || opt.text || "",
+                                hashtags: opt.hashtags || opt.tags || "",
+                                recommended: opt.recommended || false
+                            })),
+                            source: "GPT-5 Nano",
+                            usage: {
+                                promptTokens: completion.usage?.prompt_tokens,
+                                completionTokens: completion.usage?.completion_tokens,
+                                totalTokens: completion.usage?.total_tokens
+                            }
+                        });
+                    }
+                }
+            } catch (error: any) {
+                console.error("GPT-5 Nano Parsing Error:", error.message);
             }
         }
 
