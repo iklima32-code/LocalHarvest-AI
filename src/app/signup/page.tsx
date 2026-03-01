@@ -33,8 +33,8 @@ export default function SignupPage() {
             setError(error.message);
             setLoading(false);
         } else {
-            // For demo purposes, we'll assume auto-confirm is on or just redirect
-            router.push("/dashboard");
+            // New users go to dashboard first, then we trigger onboarding after a delay
+            router.push("/dashboard?new=true");
         }
     };
 

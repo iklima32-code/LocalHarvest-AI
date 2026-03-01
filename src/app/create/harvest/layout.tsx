@@ -1,11 +1,15 @@
-"use client";
-
 import { HarvestProvider } from "@/context/HarvestContext";
+import NavigationGuard from "@/components/NavigationGuard";
 
 export default function HarvestLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
-    return <HarvestProvider>{children}</HarvestProvider>;
+    return (
+        <HarvestProvider>
+            <NavigationGuard />
+            {children}
+        </HarvestProvider>
+    );
 }

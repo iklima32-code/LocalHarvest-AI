@@ -1,6 +1,74 @@
+"use client";
+
 import Header from "@/components/Header";
+import { useRouter, useSearchParams } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { Suspense, useEffect, useState } from "react";
 
 export default function Dashboard() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-harvest-green/20 border-t-harvest-green rounded-full animate-spin"></div>
+                    <p className="text-gray-500 font-medium">Preparing dashboard...</p>
+                </div>
+            </div>
+        }>
+            <DashboardContent />
+        </Suspense>
+    );
+}
+
+function DashboardContent() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const isNewUser = searchParams.get('new') === 'true';
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const checkOnboarding = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                router.push("/login");
+                return;
+            }
+
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('onboarding_completed')
+                .eq('id', user.id)
+                .single();
+
+            if (profile && !profile.onboarding_completed) {
+                if (isNewUser) {
+                    // Start dashboard experience first, then redirect after 3s
+                    setLoading(false);
+                    setTimeout(() => {
+                        router.push("/onboarding");
+                    }, 3000);
+                } else {
+                    router.push("/onboarding");
+                }
+            } else {
+                setLoading(false);
+            }
+        };
+
+        checkOnboarding();
+    }, [router]);
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-harvest-green/20 border-t-harvest-green rounded-full animate-spin"></div>
+                    <p className="text-gray-500 font-medium animate-pulse">Loading your harvest...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <main>
             <Header />

@@ -7,11 +7,17 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
 
 export async function POST(req: Request) {
     try {
-        const { harvestData } = await req.json();
+        const { harvestData, profileSettings } = await req.json();
 
         if (!harvestData || !harvestData.produceType) {
             return NextResponse.json({ error: "Missing harvest data" }, { status: 400 });
         }
+
+        const brandVoice = profileSettings?.brandVoice || "Friendly & Casual";
+        const emojiPreference = profileSettings?.emojiUsage || "Moderate (Recommended)";
+        const defaultHashtags = profileSettings?.defaultHashtags || "#FarmFresh #LocalFood #OrganicProduce";
+        const location = profileSettings?.location || "";
+        const farmName = profileSettings?.farmName || "the farm";
 
         const longCopyInstructions = `
       Recommended Structure (High-Performing Long Copy)
@@ -27,14 +33,16 @@ export async function POST(req: Request) {
       2. Problem / Agitation (2–4 sentences): Show you understand their issue (e.g., grocery store veggies that go bad fast, lack of connection to food).
       3. Authority / Insight (3–6 sentences): Educate. Position yourself as the expert local farmer. Relate this back to the specific harvest. Use bullet points occasionally.
       4. Offer / Soft CTA (1–3 sentences): No hard sell. Invite conversation. End with a soft question.
-      * Be sure to use a few relevant emojis naturally throughout the copy.
+      * Emoji Usage: ${emojiPreference}. Use them naturally.
         `;
 
         const toneInstructions = harvestData.contentLength === 'short'
-            ? 'Short and punchy (2-4 sentences total, focus on excitement and immediate value. Always end with a soft Call-To-Action or a friendly question to drive engagement).'
+            ? `Short and punchy (2-4 sentences total, focus on excitement and immediate value. Always end with a soft Call-To-Action or a friendly question to drive engagement). Emoji Usage: ${emojiPreference}.`
             : `Detailed, high-converting storytelling. Adhere strictly to these long-copy rules:\n${longCopyInstructions}`;
 
-        const prompt = `You are a social media expert for local farmers. Generate 3 distinct high-engagement social media caption options for a recent harvest.
+        const prompt = `You are a social media expert for local farmers. Generate 3 distinct high-engagement social media caption options for a recent harvest at ${farmName}${location ? ` in ${location}` : ""}.
+      
+      Brand Voice: ${brandVoice}
       
       Harvest Details:
       - Produce: ${harvestData.produceType}
@@ -43,6 +51,11 @@ export async function POST(req: Request) {
       - Context/Notes: ${harvestData.notes || "N/A"}
       - Tone: ${toneInstructions}
       
+      Specific Requirements:
+      - Include these hashtags if relevant: ${defaultHashtags}.
+      ${profileSettings?.autoLocation && location ? `- Mention location: ${location}.` : ""}
+      ${profileSettings?.autoCTA ? `- Include a "Visit us" or "Shop now" call to action.` : ""}
+
       Return a JSON array of 3 objects with these exact keys:
       [
         {
