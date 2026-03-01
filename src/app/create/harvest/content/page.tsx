@@ -200,10 +200,39 @@ function HarvestContentInner() {
     };
 
     const confirmPublish = async () => {
-        const captionToPost = `${options[selectedOption].caption}\n\n${options[selectedOption].hashtags}`;
+        const caption = options[selectedOption].caption;
+        const hashtags = options[selectedOption].hashtags;
+        const captionToPost = `${caption}\n\n${hashtags}`;
         const photoToPost = photos.length > 0 ? photos[0] : null;
 
-        // Simplify: For Personal Share, just use the browser dialog
+        // 0. Save the post to Supabase first for the professional share link
+        let postId = null;
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const { data, error: postError } = await supabase
+                    .from('posts')
+                    .insert({
+                        user_id: user.id,
+                        content: caption,
+                        hashtags: hashtags,
+                        status: 'published',
+                        metadata: {
+                            imageUrl: photoToPost,
+                            produceType: harvestData?.produceType,
+                            variety: harvestData?.variety
+                        }
+                    })
+                    .select()
+                    .single();
+
+                if (postError) throw postError;
+                postId = data.id;
+            }
+        } catch (err) {
+            console.error("Failed to save post for sharing:", err);
+            // Continue anyway with original behavior if save fails
+        }
         if (scheduleType === "personal" || scheduleType === "instagram") {
             setIsPublishing(true);
 
@@ -216,7 +245,11 @@ function HarvestContentInner() {
 
             // 2. Open Share Dialog
             if (scheduleType === "personal") {
-                const shareUrl = photoToPost || window.location.origin;
+                // Use the new Share Page link if we have a postId, otherwise fallback
+                const shareUrl = postId
+                    ? `${window.location.origin}/share/${postId}`
+                    : (photoToPost || window.location.origin);
+
                 const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
                 window.open(fbShareUrl, '_blank', 'width=600,height=500');
             } else {
