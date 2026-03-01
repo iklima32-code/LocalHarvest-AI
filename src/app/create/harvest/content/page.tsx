@@ -47,7 +47,7 @@ export default function HarvestContent() {
 
     // New View States
     const [view, setView] = useState<"review" | "preview">("review");
-    const [scheduleType, setScheduleType] = useState<"now" | "later" | "personal">("now");
+    const [scheduleType, setScheduleType] = useState<"now" | "later" | "personal" | "instagram">("personal");
     const [isPreviewEditing, setIsPreviewEditing] = useState(false);
 
 
@@ -180,19 +180,45 @@ export default function HarvestContent() {
     };
 
     const confirmPublish = async () => {
+        const captionToPost = `${options[selectedOption].caption}\n\n${options[selectedOption].hashtags}`;
+        const photoToPost = photos.length > 0 ? photos[0] : null;
+
+        // Simplify: For Personal Share, just use the browser dialog
+        if (scheduleType === "personal" || scheduleType === "instagram") {
+            setIsPublishing(true);
+
+            // 1. Copy to clipboard so user can paste it
+            try {
+                await navigator.clipboard.writeText(captionToPost);
+            } catch (err) {
+                console.error("Clipboard copy failed:", err);
+            }
+
+            // 2. Open Share Dialog
+            if (scheduleType === "personal") {
+                const shareUrl = photoToPost || window.location.origin;
+                const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+                window.open(fbShareUrl, '_blank', 'width=600,height=500');
+            } else {
+                // Instagram doesn't have a direct 'sharer.php' for web that reliably fills content,
+                // so we point them to the site and they can paste and upload.
+                window.open("https://www.instagram.com/", '_blank');
+            }
+
+            // 3. Complete step
+            setIsPublishing(false);
+            return;
+        }
+
+        // Logic for other types (if ever enabled)
         if (!postPersonal && !postBusiness) {
             alert("Please select at least one destination to publish.");
             return;
         }
 
-        const captionToPost = `${options[selectedOption].caption}\n\n${options[selectedOption].hashtags}`;
-        const photoToPost = photos.length > 0 ? photos[0] : null;
-
         setIsPublishing(true);
 
         try {
-
-
             const res = await fetch("/api/publish-facebook", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -210,7 +236,6 @@ export default function HarvestContent() {
                 throw new Error(data.error || data.details || "Failed to publish to Facebook");
             }
 
-            // If personal was checked, Facebook API doesn't allow it directly, so we use their browser share dialog as fallback
             if (postPersonal) {
                 const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(photoToPost || window.location.href)}&quote=${encodeURIComponent(captionToPost)}`;
                 window.open(fbShareUrl, '_blank', 'width=600,height=400');
@@ -218,19 +243,14 @@ export default function HarvestContent() {
 
             setIsPublishing(false);
             setShowPublishModal(false);
-            clearHarvest();
-            router.push("/dashboard?action=published");
-
+            // Stay on page
         } catch (err: any) {
             setIsPublishing(false);
             console.error("Facebook publish error:", err);
 
-            // If credentials are missing, we still want to clear the harvest and act like it "scheduled" for now so they don't get stuck
             if (err.message.includes("credentials")) {
-                alert(`⚠️ Missing Facebook API Keys:\n\nTo actually post to your Business Page, you need to add FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN to your .env file.\n\nRouting to dashboard as "Scheduled" for now...`);
+                alert(`⚠️ Missing Facebook API Keys:\n\nTo actually post to your Business Page, you need to add FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN to your .env file.`);
                 setShowPublishModal(false);
-                clearHarvest();
-                router.push("/dashboard?action=scheduled");
             } else {
                 alert(`Error publishing to Facebook: ${err.message}`);
             }
@@ -407,26 +427,6 @@ export default function HarvestContent() {
                             </div>
 
                             <div className="space-y-3">
-                                <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'now' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${scheduleType === 'now' ? 'border-[#006633]' : 'border-gray-300'}`}>
-                                            {scheduleType === 'now' && <div className="w-3 h-3 bg-[#006633] rounded-full"></div>}
-                                        </div>
-                                        <span className={`font-bold ${scheduleType === 'now' ? 'text-gray-900' : 'text-gray-500'}`}>Post Now (Demo Mode)</span>
-                                    </div>
-                                    <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'now'} onChange={() => setScheduleType('now')} />
-                                </label>
-
-                                <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'later' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${scheduleType === 'later' ? 'border-[#006633]' : 'border-gray-300'}`}>
-                                            {scheduleType === 'later' && <div className="w-3 h-3 bg-[#006633] rounded-full"></div>}
-                                        </div>
-                                        <span className={`font-bold ${scheduleType === 'later' ? 'text-gray-900' : 'text-gray-500'}`}>Schedule for Later</span>
-                                    </div>
-                                    <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'later'} onChange={() => setScheduleType('later')} />
-                                </label>
-
                                 <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'personal' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
                                     <div className="flex items-center gap-4">
                                         <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${scheduleType === 'personal' ? 'border-[#006633]' : 'border-gray-300'}`}>
@@ -434,10 +434,47 @@ export default function HarvestContent() {
                                         </div>
                                         <div className="flex flex-col">
                                             <span className={`font-bold ${scheduleType === 'personal' ? 'text-gray-900' : 'text-gray-500'}`}>Share to Facebook Personal Page</span>
-                                            <span className="text-[10px] text-gray-400 font-medium">Opens Facebook sharing dialog</span>
+                                            <span className="text-[10px] text-gray-400 font-medium tracking-tight">Opens Facebook dialog & copies content to clipboard</span>
                                         </div>
                                     </div>
                                     <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'personal'} onChange={() => setScheduleType('personal')} />
+                                </label>
+
+                                <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'instagram' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${scheduleType === 'instagram' ? 'border-[#006633]' : 'border-gray-300'}`}>
+                                            {scheduleType === 'instagram' && <div className="w-3 h-3 bg-[#006633] rounded-full"></div>}
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className={`font-bold ${scheduleType === 'instagram' ? 'text-gray-900' : 'text-gray-500'}`}>Share to Instagram Feed</span>
+                                            <span className="text-[10px] text-gray-400 font-medium tracking-tight">Opens Instagram & copies content to clipboard</span>
+                                        </div>
+                                    </div>
+                                    <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'instagram'} onChange={() => setScheduleType('instagram')} />
+                                </label>
+
+                                <label className="flex items-center justify-between p-5 rounded-[20px] transition-all border-2 bg-gray-50/50 border-transparent opacity-60 cursor-not-allowed">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-6 h-6 rounded-full border-2 border-gray-200 flex items-center justify-center">
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className="font-bold text-gray-400">Post Now (Demo Mode)</span>
+                                            <span className="text-[10px] text-orange-500 font-bold uppercase tracking-wider">Coming Soon</span>
+                                        </div>
+                                    </div>
+                                    <input type="radio" className="hidden" disabled />
+                                </label>
+
+                                <label className="flex items-center justify-between p-5 rounded-[20px] transition-all border-2 bg-gray-50/50 border-transparent opacity-60 cursor-not-allowed">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-6 h-6 rounded-full border-2 border-gray-200 flex items-center justify-center">
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className="font-bold text-gray-400">Schedule for Later</span>
+                                            <span className="text-[10px] text-orange-500 font-bold uppercase tracking-wider">Coming Soon</span>
+                                        </div>
+                                    </div>
+                                    <input type="radio" className="hidden" disabled />
                                 </label>
                             </div>
                         </div>
