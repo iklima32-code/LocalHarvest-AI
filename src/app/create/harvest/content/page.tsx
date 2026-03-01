@@ -205,34 +205,6 @@ function HarvestContentInner() {
         const captionToPost = `${caption}\n\n${hashtags}`;
         const photoToPost = photos.length > 0 ? photos[0] : null;
 
-        // 0. Save the post to Supabase first for the professional share link
-        let postId = null;
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const { data, error: postError } = await supabase
-                    .from('posts')
-                    .insert({
-                        user_id: user.id,
-                        content: caption,
-                        hashtags: hashtags,
-                        status: 'published',
-                        metadata: {
-                            imageUrl: photoToPost,
-                            produceType: harvestData?.produceType,
-                            variety: harvestData?.variety
-                        }
-                    })
-                    .select()
-                    .single();
-
-                if (postError) throw postError;
-                postId = data.id;
-            }
-        } catch (err) {
-            console.error("Failed to save post for sharing:", err);
-            // Continue anyway with original behavior if save fails
-        }
         if (scheduleType === "personal" || scheduleType === "instagram") {
             setIsPublishing(true);
 
@@ -245,18 +217,10 @@ function HarvestContentInner() {
 
             // 2. Open Share Dialog
             if (scheduleType === "personal") {
-                const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
-                // Use the new Share Page link on production, fallback to photo link on localhost
-                // (Because Facebook can't crawl localhost to get the professional metadata)
-                const shareUrl = (postId && !isLocalhost)
-                    ? `${window.location.origin}/share/${postId}`
-                    : (photoToPost || window.location.origin);
-
+                const shareUrl = photoToPost || window.location.origin;
                 const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
                 window.open(fbShareUrl, '_blank', 'width=600,height=500');
-            }
-            else {
+            } else {
                 // Instagram doesn't have a direct 'sharer.php' for web that reliably fills content,
                 // so we point them to the site and they can paste and upload.
                 window.open("https://www.instagram.com/", '_blank');
