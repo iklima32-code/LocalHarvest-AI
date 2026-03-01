@@ -1,4 +1,5 @@
-<!-- trigger deployment 2026-02-28 -->
+<!--# LocalHarvest AI (Triggering fresh Vercel build...)
+ 2026-02-28 -->
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
