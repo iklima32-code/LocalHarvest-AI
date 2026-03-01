@@ -29,12 +29,21 @@ export default function Header() {
 
         fetchUser();
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                fetchUser();
-            } else {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+                // Clear state
+                setUser(null);
                 setProfile(null);
+            } else if (session?.user) {
+                setUser(session.user);
+                fetchUser();
+            }
+
+            // If we detect an invalid session error, force a cleanup
+            if (event === 'TOKEN_REFRESHED' && !session) {
+                console.warn("Session expired or invalid. Clearing site data.");
+                localStorage.clear();
+                window.location.href = "/login";
             }
         });
 
