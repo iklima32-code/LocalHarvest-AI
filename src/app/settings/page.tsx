@@ -250,8 +250,8 @@ export default function SettingsPage() {
     const tabs = [
         { id: "farm", label: "Farm Details", icon: "🚜" },
         { id: "ai", label: "AI & Content", icon: "🪄" },
-        { id: "notifications", label: "Notifications", icon: "🔔" },
         { id: "connections", label: "Connections", icon: "🔗" },
+        { id: "notifications", label: "Notifications", icon: "🔔" },
         { id: "account", label: "Account", icon: "👤" }
     ];
 
