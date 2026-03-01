@@ -245,14 +245,18 @@ function HarvestContentInner() {
 
             // 2. Open Share Dialog
             if (scheduleType === "personal") {
-                // Use the new Share Page link if we have a postId, otherwise fallback
-                const shareUrl = postId
+                const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+                // Use the new Share Page link on production, fallback to photo link on localhost
+                // (Because Facebook can't crawl localhost to get the professional metadata)
+                const shareUrl = (postId && !isLocalhost)
                     ? `${window.location.origin}/share/${postId}`
                     : (photoToPost || window.location.origin);
 
                 const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
                 window.open(fbShareUrl, '_blank', 'width=600,height=500');
-            } else {
+            }
+            else {
                 // Instagram doesn't have a direct 'sharer.php' for web that reliably fills content,
                 // so we point them to the site and they can paste and upload.
                 window.open("https://www.instagram.com/", '_blank');

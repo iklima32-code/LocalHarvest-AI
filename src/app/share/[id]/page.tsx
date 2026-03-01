@@ -28,8 +28,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
         openGraph: {
             title: `Fresh Harvest from ${farmName}!`,
             description: post.content,
-            images: imageUrl ? [imageUrl] : [],
+            images: imageUrl ? [{
+                url: imageUrl,
+                width: 1200,
+                height: 630,
+                alt: `Fresh harvest from ${farmName}`
+            }] : [],
             type: 'website',
+            siteName: 'LocalHarvest AI',
         },
         twitter: {
             card: 'summary_large_image',
