@@ -192,9 +192,24 @@ export default function HarvestWorkflow() {
                                 </div>
                             )}
 
-                            <div className="pt-5">
+                            <div className="pt-5 flex flex-col items-center gap-4">
                                 <button type="submit" className="button-primary w-full justify-center text-xl py-5 shadow-xl hover:shadow-2xl">
                                     Generate Content with AI ✨
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        if (!formData.produceType.trim()) {
+                                            setErrors({ produceType: true });
+                                            setShowErrorModal(true);
+                                            return;
+                                        }
+                                        router.push("/create/harvest/content?mode=manual");
+                                    }}
+                                    className="text-harvest-green font-bold hover:underline py-1 transition-all"
+                                >
+                                    Write my own content
                                 </button>
                             </div>
                         </form>

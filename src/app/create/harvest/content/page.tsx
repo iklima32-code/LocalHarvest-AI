@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Header from "@/components/Header";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useHarvest } from "@/context/HarvestContext";
 import { supabase } from "@/lib/supabase";
 
@@ -25,8 +25,10 @@ const mockOptions = [
     }
 ];
 
-export default function HarvestContent() {
+function HarvestContentInner() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const mode = searchParams.get("mode");
     const { formData: harvestData, photos, clearHarvest } = useHarvest();
     const [options, setOptions] = useState<any[]>(mockOptions);
     const [usage, setUsage] = useState<any>(null);
@@ -154,8 +156,26 @@ export default function HarvestContent() {
     };
 
     useEffect(() => {
+        if (!harvestData || !harvestData.produceType) return;
+
+        if (mode === "manual") {
+            const manualOption = {
+                caption: "Write your own ...",
+                hashtags: "#FarmFresh",
+                recommended: true
+            };
+            setOptions([manualOption]);
+            setSelectedOption(0);
+            setEditedCaption(manualOption.caption);
+            setEditedHashtags(manualOption.hashtags);
+            setIsGenerating(false);
+            setView("preview");
+            setIsPreviewEditing(true);
+            return;
+        }
+
         fetchContent();
-    }, [harvestData, retryCount]);
+    }, [harvestData, retryCount, mode, profile]);
 
     const handleEditStart = (idx: number) => {
         setIsEditing(idx);
@@ -319,7 +339,7 @@ export default function HarvestContent() {
                                 {isPreviewEditing ? "Save Changes" : "Edit"}
                             </button>
                             <button
-                                onClick={() => setView("review")}
+                                onClick={() => mode === "manual" ? router.push("/create/harvest") : setView("review")}
                                 className="px-6 py-2 bg-white border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-50 transition-all shadow-sm"
                             >
                                 ← Back
@@ -374,6 +394,8 @@ export default function HarvestContent() {
                                             onChange={(e) => setEditedCaption(e.target.value)}
                                             className="w-full min-h-[120px] p-4 bg-gray-50 border-2 border-harvest-green rounded-xl outline-none font-medium text-gray-800 text-sm leading-relaxed"
                                             placeholder="Write your caption..."
+                                            autoFocus
+                                            onFocus={(e) => e.currentTarget.select()}
                                         />
                                         <input
                                             type="text"
@@ -780,5 +802,23 @@ export default function HarvestContent() {
                 </div>
             )}
         </main>
+    );
+}
+
+export default function HarvestContent() {
+    return (
+        <Suspense fallback={
+            <main>
+                <Header />
+                <div className="max-w-[1200px] mx-auto py-20 px-5 text-center">
+                    <div className="card max-w-lg mx-auto py-16">
+                        <div className="w-16 h-16 border-4 border-gray-100 border-t-harvest-green rounded-full animate-spin mx-auto mb-8"></div>
+                        <h2 className="text-2xl font-bold">Loading...</h2>
+                    </div>
+                </div>
+            </main>
+        }>
+            <HarvestContentInner />
+        </Suspense>
     );
 }
