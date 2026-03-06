@@ -44,7 +44,7 @@ export default function Integrations() {
 
         (window as any).fbAsyncInit = function () {
             (window as any).FB.init({
-                appId: '143657727928840', // ROI-MUSE App ID
+                appId: '2454032635058947', // ROI-MUSE App ID
                 cookie: true,
                 xfbml: true,
                 version: 'v19.0'
