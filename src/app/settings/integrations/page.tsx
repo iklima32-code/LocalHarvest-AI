@@ -42,9 +42,9 @@ export default function Integrations() {
             fjs.parentNode?.insertBefore(js, fjs);
         }(document, 'script', 'facebook-jssdk'));
 
-        window.fbAsyncInit = function () {
-            window.FB.init({
-                appId: '1229116816004522', // ROI-MUSE App ID
+        (window as any).fbAsyncInit = function () {
+            (window as any).FB.init({
+                appId: '143657727928840', // ROI-MUSE App ID
                 cookie: true,
                 xfbml: true,
                 version: 'v19.0'
