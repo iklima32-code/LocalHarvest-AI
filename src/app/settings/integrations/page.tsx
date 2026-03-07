@@ -47,7 +47,7 @@ export default function Integrations() {
                 appId: '2454032635058947', // ROI-MUSE App ID
                 cookie: true,
                 xfbml: true,
-                version: 'v19.0'
+                version: 'v25.0'
             });
         };
     }, []);
