@@ -47,7 +47,7 @@ export default function Integrations() {
                 appId: '2454032635058947', // ROI-MUSE App ID
                 cookie: true,
                 xfbml: true,
-                version: 'v25.0'
+                version: 'v22.0'
             });
         };
     }, []);
@@ -55,14 +55,21 @@ export default function Integrations() {
     const handleFbLogin = () => {
         setIsConnecting(true);
         window.FB.login((response: any) => {
+            console.log("FB Login Response:", response);
             if (response.authResponse) {
                 const userAccessToken = response.authResponse.accessToken;
                 fetchPages(userAccessToken);
             } else {
                 setIsConnecting(false);
-                alert("User cancelled login or did not fully authorize.");
+                if (response.status !== 'unknown') {
+                    alert("Facebook Authorization failed: " + response.status);
+                }
             }
-        }, { scope: 'pages_manage_posts,pages_read_engagement,pages_show_list' });
+        }, { 
+            scope: 'pages_manage_posts,pages_read_engagement,pages_show_list',
+            auth_type: 'rerequest',
+            return_scopes: true 
+        });
     };
 
     const fetchPages = (userAccessToken: string) => {
@@ -70,14 +77,13 @@ export default function Integrations() {
         window.FB.api('/me/accounts', { access_token: userAccessToken }, (response: any) => {
             console.log("FB /me/accounts response:", response);
             if (response && response.data) {
-                if (response.data.length === 0) {
-                    console.warn("No pages returned from Facebook.");
-                }
                 setFbPages(response.data);
                 setShowPageSelector(true);
-            } else {
+            } else if (response.error) {
                 console.error("FB API Error:", response.error);
-                alert("Could not fetch your Facebook pages. Check if you have any Business Pages.");
+                alert(`Facebook Error: ${response.error.message}`);
+            } else {
+                alert("Could not fetch your Facebook pages. Please ensure you have at least one Business Page.");
             }
             setIsConnecting(false);
         });
