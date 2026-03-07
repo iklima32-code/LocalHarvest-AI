@@ -306,7 +306,7 @@ export default function SettingsPage() {
                 }
             }
         }, {
-            scope: 'public_profile,email,pages_manage_posts,pages_read_engagement,pages_show_list',
+            scope: 'public_profile,pages_manage_posts,pages_read_engagement,pages_show_list',
             auth_type: 'rerequest',
             return_scopes: true
         });
