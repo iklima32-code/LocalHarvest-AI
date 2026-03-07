@@ -66,12 +66,18 @@ export default function Integrations() {
     };
 
     const fetchPages = (userAccessToken: string) => {
+        console.log("Fetching pages with access token...");
         window.FB.api('/me/accounts', { access_token: userAccessToken }, (response: any) => {
-            if (response.data) {
+            console.log("FB /me/accounts response:", response);
+            if (response && response.data) {
+                if (response.data.length === 0) {
+                    console.warn("No pages returned from Facebook.");
+                }
                 setFbPages(response.data);
                 setShowPageSelector(true);
             } else {
-                alert("Could not fetch your Facebook pages.");
+                console.error("FB API Error:", response.error);
+                alert("Could not fetch your Facebook pages. Check if you have any Business Pages.");
             }
             setIsConnecting(false);
         });
@@ -223,24 +229,34 @@ export default function Integrations() {
                                     <p className="text-gray-500 text-sm mt-2">Which Facebook Business Page represents your farm?</p>
                                 </div>
                                 <div className="p-4 max-h-[400px] overflow-y-auto">
-                                    {fbPages.map(page => (
-                                        <button
-                                            key={page.id}
-                                            onClick={() => connectPage(page)}
-                                            className="w-full flex items-center justify-between p-4 hover:bg-blue-50 rounded-2xl transition-all border-2 border-transparent hover:border-blue-200 group mb-2"
-                                        >
-                                            <div className="flex items-center gap-4 text-left">
-                                                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-xl uppercase">
-                                                    {page.name.charAt(0)}
+                                    {fbPages.length > 0 ? (
+                                        fbPages.map(page => (
+                                            <button
+                                                key={page.id}
+                                                onClick={() => connectPage(page)}
+                                                className="w-full flex items-center justify-between p-4 hover:bg-blue-50 rounded-2xl transition-all border-2 border-transparent hover:border-blue-200 group mb-2"
+                                            >
+                                                <div className="flex items-center gap-4 text-left">
+                                                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-xl uppercase">
+                                                        {page.name.charAt(0)}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-bold text-gray-800 group-hover:text-blue-700">{page.name}</div>
+                                                        <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{page.category}</div>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <div className="font-bold text-gray-800 group-hover:text-blue-700">{page.name}</div>
-                                                    <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{page.category}</div>
-                                                </div>
-                                            </div>
-                                            <span className="text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">→</span>
-                                        </button>
-                                    ))}
+                                                <span className="text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+                                            </button>
+                                        ))
+                                    ) : (
+                                        <div className="p-10 text-center">
+                                            <div className="text-4xl mb-4">😿</div>
+                                            <div className="font-bold text-gray-800">No Pages Found</div>
+                                            <p className="text-sm text-gray-500 mt-2">
+                                                We couldn't find any Facebook Pages you manage. Make sure you are an admin of at least one Business Page.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="p-8 bg-gray-50 flex gap-4">
                                     <button
