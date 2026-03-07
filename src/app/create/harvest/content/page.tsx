@@ -50,9 +50,8 @@ function HarvestContentInner() {
 
     // New View States
     const [view, setView] = useState<"review" | "preview">("review");
-    const [scheduleType, setScheduleType] = useState<"now" | "later" | "personal" | "instagram" | "linkedin">("personal");
+    const [scheduleType, setScheduleType] = useState<"now" | "later" | "personal" | "instagram" | "business" | "linkedin">("personal");
     const [isPreviewEditing, setIsPreviewEditing] = useState(false);
-
 
 
     const handleCopy = (e: React.MouseEvent | null, text: string, idx: number | null) => {
@@ -258,12 +257,47 @@ function HarvestContentInner() {
                 setIsPublishing(false);
                 console.error("LinkedIn publish error:", err);
                 if (err.message.includes("not connected") || err.message.includes("LinkedIn not connected")) {
-                    alert("LinkedIn is not connected. Please go to Settings > Integrations to connect your LinkedIn account.");
+                    alert("LinkedIn is not connected. Please go to Settings to connect your LinkedIn account.");
                 } else {
                     alert(`Error publishing to LinkedIn: ${err.message}`);
                 }
             }
             return;
+        }
+
+        if (scheduleType === "business") {
+            setIsPublishing(true);
+            try {
+                const res = await fetch("/api/publish-facebook", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        caption: captionToPost,
+                        imageUrl: photoToPost,
+                        postBusiness: true,
+                        postPersonal: false
+                    })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.error || data.details || "Failed to publish to Facebook");
+                }
+
+                alert("Successfully published to your Facebook Business Page! 🎉");
+                setIsPublishing(false);
+                return;
+            } catch (err: any) {
+                setIsPublishing(false);
+                console.error("Facebook Business publish error:", err);
+                if (err.message.includes("credentials")) {
+                    alert(`⚠️ Missing Facebook API Keys:\n\nTo actually post to your Business Page, you need to add FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN to your .env file.`);
+                } else {
+                    alert(`Error publishing to Facebook: ${err.message}`);
+                }
+                return;
+            }
         }
 
         // Logic for other types (if ever enabled)
@@ -432,7 +466,7 @@ function HarvestContentInner() {
                                 {isPreviewEditing ? (
                                     <div className="space-y-4 mb-6">
                                         <textarea
-                                            value={editedCaption}
+                                            value={editedCaption || ""}
                                             onChange={(e) => setEditedCaption(e.target.value)}
                                             className="w-full min-h-[120px] p-4 bg-gray-50 border-2 border-harvest-green rounded-xl outline-none font-medium text-gray-800 text-sm leading-relaxed"
                                             placeholder="Write your caption..."
@@ -441,7 +475,7 @@ function HarvestContentInner() {
                                         />
                                         <input
                                             type="text"
-                                            value={editedHashtags}
+                                            value={editedHashtags || ""}
                                             onChange={(e) => setEditedHashtags(e.target.value)}
                                             className="w-full p-3 bg-gray-50 border-2 border-harvest-green rounded-xl outline-none font-bold text-harvest-green text-xs"
                                             placeholder="#hashtags"
@@ -501,7 +535,20 @@ function HarvestContentInner() {
                                             <span className="text-[10px] text-gray-400 font-medium tracking-tight">Opens Facebook dialog & copies content to clipboard</span>
                                         </div>
                                     </div>
-                                    <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'personal'} onChange={() => setScheduleType('personal')} />
+                                    <input type="radio" className="hidden" name="schedule" value="personal" checked={scheduleType === 'personal'} onChange={() => setScheduleType('personal')} />
+                                </label>
+
+                                <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'business' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${scheduleType === 'business' ? 'border-[#006633]' : 'border-gray-300'}`}>
+                                            {scheduleType === 'business' && <div className="w-3 h-3 bg-[#006633] rounded-full"></div>}
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className={`font-bold ${scheduleType === 'business' ? 'text-gray-900' : 'text-gray-500'}`}>Publish to Facebook Business Page</span>
+                                            <span className="text-[10px] text-gray-400 font-medium tracking-tight">Directly posts to your connected farm page</span>
+                                        </div>
+                                    </div>
+                                    <input type="radio" className="hidden" name="schedule" value="business" checked={scheduleType === 'business'} onChange={() => setScheduleType('business')} />
                                 </label>
 
                                 <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'instagram' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
@@ -514,7 +561,7 @@ function HarvestContentInner() {
                                             <span className="text-[10px] text-gray-400 font-medium tracking-tight">Opens Instagram & copies content to clipboard</span>
                                         </div>
                                     </div>
-                                    <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'instagram'} onChange={() => setScheduleType('instagram')} />
+                                    <input type="radio" className="hidden" name="schedule" value="instagram" checked={scheduleType === 'instagram'} onChange={() => setScheduleType('instagram')} />
                                 </label>
 
                                 <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'linkedin' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
@@ -707,14 +754,14 @@ function HarvestContentInner() {
                                         {isEditing === idx ? (
                                             <div className="space-y-4">
                                                 <textarea
-                                                    value={editedCaption}
+                                                    value={editedCaption || ""}
                                                     onChange={(e) => setEditedCaption(e.target.value)}
                                                     className="w-full min-h-[120px] p-4 bg-white border-2 border-harvest-green rounded-xl outline-none font-medium text-gray-800 leading-relaxed"
                                                     autoFocus
                                                 />
                                                 <input
                                                     type="text"
-                                                    value={editedHashtags}
+                                                    value={editedHashtags || ""}
                                                     onChange={(e) => setEditedHashtags(e.target.value)}
                                                     className="w-full p-3 bg-white border-2 border-harvest-green rounded-xl outline-none font-bold text-harvest-green text-sm"
                                                     placeholder="#hashtags"
