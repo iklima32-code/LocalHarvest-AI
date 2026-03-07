@@ -770,7 +770,7 @@ export default function SettingsPage() {
                                                 <button
                                                     type="button"
                                                     className="w-full bg-[#1877F2] hover:bg-[#166fe5] text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-600/20 flex items-center justify-center gap-3 transition-all"
-                                                    onClick={() => alert("This will open the Facebook OAuth popup in a real production environment.")}
+                                                    onClick={() => window.location.href = "/settings/integrations"}
                                                 >
                                                     <span className="text-xl">🔗</span> Connect Facebook Page
                                                 </button>
