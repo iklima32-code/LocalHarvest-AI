@@ -41,6 +41,7 @@ function HarvestContentInner() {
     const [showPublishModal, setShowPublishModal] = useState(false);
     const [postPersonal, setPostPersonal] = useState(true);
     const [postBusiness, setPostBusiness] = useState(false);
+    const [postLinkedIn, setPostLinkedIn] = useState(false);
     const [isPublishing, setIsPublishing] = useState(false);
     const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
     const [isEditing, setIsEditing] = useState<number | null>(null);
@@ -49,7 +50,7 @@ function HarvestContentInner() {
 
     // New View States
     const [view, setView] = useState<"review" | "preview">("review");
-    const [scheduleType, setScheduleType] = useState<"now" | "later" | "personal" | "instagram">("personal");
+    const [scheduleType, setScheduleType] = useState<"now" | "later" | "personal" | "instagram" | "linkedin">("personal");
     const [isPreviewEditing, setIsPreviewEditing] = useState(false);
 
 
@@ -231,6 +232,40 @@ function HarvestContentInner() {
             return;
         }
 
+        if (scheduleType === "linkedin") {
+            setIsPublishing(true);
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) throw new Error("Not logged in");
+
+                const res = await fetch("/api/publish-linkedin", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        caption: captionToPost,
+                        imageUrl: photoToPost,
+                        userId: user.id,
+                    }),
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || "Failed to publish to LinkedIn");
+
+                setIsPublishing(false);
+                setShowPublishModal(false);
+                alert("Successfully published to LinkedIn!");
+            } catch (err: any) {
+                setIsPublishing(false);
+                console.error("LinkedIn publish error:", err);
+                if (err.message.includes("not connected") || err.message.includes("LinkedIn not connected")) {
+                    alert("LinkedIn is not connected. Please go to Settings > Integrations to connect your LinkedIn account.");
+                } else {
+                    alert(`Error publishing to LinkedIn: ${err.message}`);
+                }
+            }
+            return;
+        }
+
         // Logic for other types (if ever enabled)
         if (!postPersonal && !postBusiness) {
             alert("Please select at least one destination to publish.");
@@ -360,6 +395,12 @@ function HarvestContentInner() {
                                     <span className="text-blue-500">📘</span> Facebook
                                 </button>
                                 <button
+                                    onClick={() => setPostLinkedIn(!postLinkedIn)}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${postLinkedIn ? 'bg-blue-100 text-blue-700 border-2 border-blue-300' : 'bg-white text-gray-400 border border-gray-200'}`}
+                                >
+                                    <span className="font-black">in</span> LinkedIn
+                                </button>
+                                <button
                                     className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-pink-50 text-pink-600 border-2 border-pink-100 opacity-60 cursor-not-allowed"
                                 >
                                     <span className="">📸</span> Instagram
@@ -474,6 +515,19 @@ function HarvestContentInner() {
                                         </div>
                                     </div>
                                     <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'instagram'} onChange={() => setScheduleType('instagram')} />
+                                </label>
+
+                                <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'linkedin' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${scheduleType === 'linkedin' ? 'border-[#006633]' : 'border-gray-300'}`}>
+                                            {scheduleType === 'linkedin' && <div className="w-3 h-3 bg-[#006633] rounded-full"></div>}
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className={`font-bold ${scheduleType === 'linkedin' ? 'text-gray-900' : 'text-gray-500'}`}>Publish to LinkedIn</span>
+                                            <span className="text-[10px] text-gray-400 font-medium tracking-tight">Posts directly to your LinkedIn profile</span>
+                                        </div>
+                                    </div>
+                                    <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'linkedin'} onChange={() => setScheduleType('linkedin')} />
                                 </label>
 
                                 <label className="flex items-center justify-between p-5 rounded-[20px] transition-all border-2 bg-gray-50/50 border-transparent opacity-60 cursor-not-allowed">
