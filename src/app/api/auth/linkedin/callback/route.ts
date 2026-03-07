@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     const error = req.nextUrl.searchParams.get("error");
 
     if (error || !code) {
-        return NextResponse.redirect(`${appUrl}/settings/integrations?linkedin=error`);
+        return NextResponse.redirect(`${appUrl}/settings?tab=connections&linkedin=error`);
     }
 
     try {
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
         // 3. Get the current Supabase user
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-            return NextResponse.redirect(`${appUrl}/settings/integrations?linkedin=error`);
+            return NextResponse.redirect(`${appUrl}/settings?tab=connections&linkedin=error`);
         }
 
         // 4. Encrypt and store
@@ -60,9 +60,9 @@ export async function GET(req: NextRequest) {
             })
             .eq("id", user.id);
 
-        return NextResponse.redirect(`${appUrl}/settings/integrations?linkedin=connected`);
+        return NextResponse.redirect(`${appUrl}/settings?tab=connections&linkedin=connected`);
     } catch (err: any) {
         console.error("LinkedIn OAuth callback error:", err);
-        return NextResponse.redirect(`${appUrl}/settings/integrations?linkedin=error`);
+        return NextResponse.redirect(`${appUrl}/settings?tab=connections&linkedin=error`);
     }
 }

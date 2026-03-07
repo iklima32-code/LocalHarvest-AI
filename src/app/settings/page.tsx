@@ -64,11 +64,26 @@ export default function SettingsPage() {
     const [fbPages, setFbPages] = useState<any[]>([]);
     const [showPageSelector, setShowPageSelector] = useState(false);
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+    const [showLinkedInDisconnectConfirm, setShowLinkedInDisconnectConfirm] = useState(false);
 
     const [activeAudio, setActiveAudio] = useState<HTMLAudioElement | null>(null);
 
     useEffect(() => {
         fetchProfile();
+
+        if (typeof window !== "undefined") {
+            const urlParams = new URLSearchParams(window.location.search);
+            const linkedinParam = urlParams.get('linkedin');
+            if (linkedinParam === 'connected') {
+                setMessage({ type: 'success', text: 'LinkedIn connected successfully! 🎉' });
+                setActiveTab('connections');
+                window.history.replaceState({}, document.title, window.location.pathname + "?tab=connections");
+            } else if (linkedinParam === 'error') {
+                setMessage({ type: 'error', text: 'Failed to connect LinkedIn. Please try again.' });
+                setActiveTab('connections');
+                window.history.replaceState({}, document.title, window.location.pathname + "?tab=connections");
+            }
+        }
     }, []);
 
     useEffect(() => {
@@ -283,10 +298,10 @@ export default function SettingsPage() {
                     alert("Facebook Authorization failed: " + response.status);
                 }
             }
-        }, { 
+        }, {
             scope: 'pages_manage_posts,pages_read_engagement,pages_show_list',
             auth_type: 'rerequest',
-            return_scopes: true 
+            return_scopes: true
         });
     };
 
@@ -314,7 +329,7 @@ export default function SettingsPage() {
 
             const res = await fetch("/api/auth/facebook-connect", {
                 method: "POST",
-                headers: { 
+                headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${session.access_token}`
                 },
@@ -364,6 +379,35 @@ export default function SettingsPage() {
             setIsConnecting(false);
         }
     };
+
+    const handleLinkedInLogin = () => {
+        setIsConnecting(true);
+        window.location.href = "/api/auth/linkedin";
+    };
+
+    const disconnectLinkedIn = async () => {
+        setShowLinkedInDisconnectConfirm(false);
+        setIsConnecting(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const { error } = await supabase.from('profiles').update({
+                linkedin_access_token: null,
+                linkedin_person_urn: null
+            }).eq('id', user?.id);
+
+            if (error) throw error;
+
+            const { data } = await supabase.from('profiles').select('*').eq('id', user?.id).single();
+            setProfile(data);
+            setMessage({ type: "success", text: "LinkedIn disconnected successfully." });
+            setTimeout(() => setMessage({ type: "", text: "" }), 3000);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setIsConnecting(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen bg-[#f8faf8] flex items-center justify-center">
@@ -847,7 +891,7 @@ export default function SettingsPage() {
                                 {activeTab === 'connections' && (
                                     <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
                                         <h2 className="text-2xl font-extrabold text-[#333] mb-8">Connections & Integrations</h2>
-                                        
+
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                             {/* Facebook Integration Card */}
                                             <div className={`p-8 rounded-[40px] border-2 transition-all duration-300 relative group overflow-hidden ${profile?.fb_page_id ? 'bg-blue-50/30 border-blue-200' : 'bg-white border-transparent hover:border-gray-50 shadow-sm border-gray-100'}`}>
@@ -935,6 +979,97 @@ export default function SettingsPage() {
                                                             <>
                                                                 <span className="text-2xl group-hover:scale-125 transition-transform duration-300">🔗</span>
                                                                 <span className="text-lg">Connect Facebook Page</span>
+                                                            </>
+                                                        )}
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* LinkedIn Integration Card */}
+                                            <div className={`p-8 rounded-[40px] border-2 transition-all duration-300 relative group overflow-hidden ${profile?.linkedin_person_urn ? 'bg-[#f3f9ff] border-[#0a66c2]/30' : 'bg-white border-transparent hover:border-gray-50 shadow-sm border-gray-100'}`}>
+                                                {profile?.linkedin_person_urn && (
+                                                    <div className="absolute top-0 right-0 py-2 px-6 bg-[#0a66c2] text-white text-[10px] font-black uppercase tracking-widest rounded-bl-3xl">
+                                                        Active Connection
+                                                    </div>
+                                                )}
+
+                                                <div className="flex justify-between items-start mb-6">
+                                                    <div className="flex items-center gap-5">
+                                                        <div className="w-16 h-16 bg-[#0a66c2] text-white rounded-2xl flex items-center justify-center text-4xl font-bold shadow-lg shadow-[#0a66c2]/30">
+                                                            in
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <h3 className="text-2xl font-black text-gray-800 tracking-tight">LinkedIn</h3>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="w-2 h-2 rounded-full bg-[#0a66c2]"></span>
+                                                                <span className="text-gray-500 text-xs font-bold uppercase tracking-wider">Professional Network</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {profile?.linkedin_person_urn ? (
+                                                    <div className="mb-8 p-6 bg-white rounded-3xl border border-[#0a66c2]/20 shadow-sm animate-in slide-in-from-bottom-2 duration-500">
+                                                        <span className="text-[10px] font-black text-[#0a66c2] uppercase tracking-widest block mb-2">Connected Profile</span>
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="w-12 h-12 bg-[#0a66c2]/10 rounded-xl flex items-center justify-center text-[#0a66c2] font-bold text-xl uppercase border border-[#0a66c2]/20">
+                                                                {profile.full_name ? profile.full_name.charAt(0) : 'LI'}
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-xl font-black text-gray-800">LinkedIn Profile</div>
+                                                                <div className="text-xs text-gray-400 font-medium">B2B publishing ready</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="mb-10 space-y-4">
+                                                        <p className="text-gray-500 text-sm leading-relaxed font-medium">
+                                                            Broaden your farm's reach. Connect LinkedIn to publish professional updates, build partnerships, and attract B2B opportunities.
+                                                        </p>
+                                                        <div className="flex flex-wrap gap-2 text-[10px] font-bold">
+                                                            <span className="px-3 py-1 bg-gray-50 text-gray-400 rounded-full border border-gray-100">B2B Network</span>
+                                                            <span className="px-3 py-1 bg-gray-50 text-gray-400 rounded-full border border-gray-100">Rich Media</span>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {profile?.linkedin_person_urn ? (
+                                                    <>
+                                                        <div className="bg-gray-50/50 p-6 rounded-[32px] border border-gray-100 mb-8">
+                                                            <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Connection Details</div>
+                                                            <div className="grid grid-cols-1 gap-3">
+                                                                <div className="flex items-center gap-3 text-sm font-bold text-gray-600">
+                                                                    <span className="flex-shrink-0 w-6 h-6 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-xs">✓</span>
+                                                                    Profile Publishing Active
+                                                                </div>
+                                                                <div className="flex items-center gap-3 text-sm font-bold text-gray-600">
+                                                                    <span className="flex-shrink-0 w-6 h-6 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-xs">✓</span>
+                                                                    Secure Token Encryption
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowLinkedInDisconnectConfirm(true)}
+                                                            disabled={isConnecting}
+                                                            className="w-full py-4 bg-white border-2 border-red-50 text-red-500 font-black rounded-2xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                                                        >
+                                                            {isConnecting ? <div className="w-5 h-5 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin"></div> : <span>⚠️ Disconnect LinkedIn</span>}
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        disabled={isConnecting}
+                                                        onClick={handleLinkedInLogin}
+                                                        className="w-full bg-[#0a66c2] hover:bg-[#004182] text-white font-black py-5 rounded-[40px] shadow-xl shadow-[#0a66c2]/30 flex items-center justify-center gap-4 transition-all group active:scale-95 disabled:opacity-70 disabled:grayscale"
+                                                    >
+                                                        {isConnecting ? (
+                                                            <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                                        ) : (
+                                                            <>
+                                                                <span className="text-2xl group-hover:scale-125 transition-transform duration-300">🔗</span>
+                                                                <span className="text-lg">Connect LinkedIn</span>
                                                             </>
                                                         )}
                                                     </button>
@@ -1064,6 +1199,25 @@ export default function SettingsPage() {
                                             <div className="flex flex-col gap-3">
                                                 <button type="button" onClick={disconnectFb} className="w-full py-4 bg-red-500 text-white font-black rounded-2xl">Yes, Disconnect</button>
                                                 <button type="button" onClick={() => setShowDisconnectConfirm(false)} className="w-full py-4 bg-gray-50 text-gray-500 font-bold rounded-2xl">Keep Connected</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* LinkedIn Disconnect Modal */}
+                            {showLinkedInDisconnectConfirm && (
+                                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-5 backdrop-blur-sm">
+                                    <div className="bg-white rounded-[40px] max-w-sm w-full overflow-hidden shadow-2xl">
+                                        <div className="p-10 text-center">
+                                            <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-6">⚠️</div>
+                                            <h3 className="text-2xl font-black text-gray-800 tracking-tight mb-3">Wait a moment!</h3>
+                                            <p className="text-gray-500 text-sm leading-relaxed mb-8">
+                                                Are you sure you want to disconnect your <span className="font-bold">LinkedIn Profile</span>?
+                                            </p>
+                                            <div className="flex flex-col gap-3">
+                                                <button type="button" onClick={disconnectLinkedIn} className="w-full py-4 bg-red-500 text-white font-black rounded-2xl">Yes, Disconnect</button>
+                                                <button type="button" onClick={() => setShowLinkedInDisconnectConfirm(false)} className="w-full py-4 bg-gray-50 text-gray-500 font-bold rounded-2xl">Keep Connected</button>
                                             </div>
                                         </div>
                                     </div>
