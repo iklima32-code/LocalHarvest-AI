@@ -380,9 +380,30 @@ export default function SettingsPage() {
         }
     };
 
-    const handleLinkedInLogin = () => {
+    const handleLinkedInLogin = async () => {
+        console.log(">>> LinkedIn Connect clicked");
         setIsConnecting(true);
-        window.location.href = "/api/auth/linkedin";
+        try {
+            let uid = profile?.id;
+            if (!uid) {
+                const { data: { user } } = await supabase.auth.getUser();
+                uid = user?.id;
+            }
+
+            if (!uid) {
+                alert("Please log in again to connect LinkedIn.");
+                setIsConnecting(false);
+                return;
+            }
+
+            console.log(">>> Redirecting to LinkedIn OAuth with userId:", uid);
+            const url = `/api/auth/linkedin?userId=${uid}`;
+            window.location.href = url;
+        } catch (err: any) {
+            console.error("LinkedIn connect error:", err);
+            alert("Error connecting LinkedIn: " + err.message);
+            setIsConnecting(false);
+        }
     };
 
     const disconnectLinkedIn = async () => {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { decryptToken } from "@/lib/encryption";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function POST(req: Request) {
     try {
@@ -11,7 +11,7 @@ export async function POST(req: Request) {
         }
 
         // 1. Fetch encrypted token and URN from profiles
-        const { data: profile, error: profileError } = await supabase
+        const { data: profile, error: profileError } = await supabaseAdmin
             .from("profiles")
             .select("linkedin_access_token, linkedin_person_urn")
             .eq("id", userId)
