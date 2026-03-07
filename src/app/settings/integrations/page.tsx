@@ -1,8 +1,46 @@
 "use client";
 
 import Header from "@/components/Header";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function Integrations() {
+function IntegrationsInner() {
+    const searchParams = useSearchParams();
+    const [linkedinConnected, setLinkedinConnected] = useState(false);
+    const [userId, setUserId] = useState<string | null>(null);
+
+    useEffect(() => {
+        const fetchProfile = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            setUserId(user.id);
+            const { data } = await supabase
+                .from("profiles")
+                .select("linkedin_access_token")
+                .eq("id", user.id)
+                .single();
+            setLinkedinConnected(!!data?.linkedin_access_token);
+        };
+        fetchProfile();
+    }, []);
+
+    // Reflect redirect param (after OAuth completes)
+    useEffect(() => {
+        const param = searchParams.get("linkedin");
+        if (param === "connected") setLinkedinConnected(true);
+    }, [searchParams]);
+
+    const handleLinkedinDisconnect = async () => {
+        if (!userId) return;
+        await supabase
+            .from("profiles")
+            .update({ linkedin_access_token: null, linkedin_person_urn: null })
+            .eq("id", userId);
+        setLinkedinConnected(false);
+    };
+
     return (
         <main>
             <Header />
@@ -56,6 +94,65 @@ export default function Integrations() {
                         >
                             <span className="text-xl">🔗</span> Connect Facebook Page
                         </button>
+                    </div>
+
+                    {/* LinkedIn Integration Card */}
+                    <div className="card border-2 border-transparent hover:border-blue-100 transition-colors">
+                        <div className="flex justify-between items-start mb-6">
+                            <div className="flex items-center gap-4">
+                                <div className="w-14 h-14 bg-blue-700 text-white rounded-2xl flex items-center justify-center text-3xl font-bold">
+                                    in
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-gray-800">LinkedIn</h3>
+                                    <span className="inline-block px-2 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded mt-1">Professional Network</span>
+                                </div>
+                            </div>
+                            {linkedinConnected ? (
+                                <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full uppercase tracking-wider">
+                                    Connected
+                                </span>
+                            ) : (
+                                <span className="px-3 py-1 bg-gray-100 text-gray-500 text-xs font-bold rounded-full uppercase tracking-wider">
+                                    Not Connected
+                                </span>
+                            )}
+                        </div>
+
+                        <p className="text-gray-600 text-sm mb-8 leading-relaxed">
+                            Share harvest updates and farm stories with your professional network. Connect your LinkedIn profile to publish directly from the dashboard.
+                        </p>
+
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 mb-6">
+                            <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Permissions needed</div>
+                            <ul className="text-sm text-gray-600 space-y-2">
+                                <li className="flex gap-2 items-center">
+                                    <span className="text-green-500 font-bold">✓</span> w_member_social — create posts
+                                </li>
+                                <li className="flex gap-2 items-center">
+                                    <span className="text-green-500 font-bold">✓</span> openid — verify identity
+                                </li>
+                                <li className="flex gap-2 items-center">
+                                    <span className="text-green-500 font-bold">✓</span> profile — read your profile
+                                </li>
+                            </ul>
+                        </div>
+
+                        {linkedinConnected ? (
+                            <button
+                                onClick={handleLinkedinDisconnect}
+                                className="w-full button-secondary justify-center py-4 flex items-center gap-3 transition-all border-red-200 text-red-600 hover:bg-red-50"
+                            >
+                                Disconnect LinkedIn
+                            </button>
+                        ) : (
+                            <a
+                                href="/api/auth/linkedin"
+                                className="w-full button-primary bg-blue-700 hover:bg-blue-800 justify-center shadow-md shadow-blue-700/20 py-4 flex items-center gap-3 transition-all"
+                            >
+                                <span className="text-xl">🔗</span> Connect LinkedIn
+                            </a>
+                        )}
                     </div>
 
                     {/* Instagram Integration Card (Coming Soon) */}
@@ -114,5 +211,13 @@ export default function Integrations() {
                 </div>
             </div>
         </main>
+    );
+}
+
+export default function Integrations() {
+    return (
+        <Suspense>
+            <IntegrationsInner />
+        </Suspense>
     );
 }
