@@ -63,6 +63,7 @@ export default function SettingsPage() {
     const [isConnecting, setIsConnecting] = useState(false);
     const [fbPages, setFbPages] = useState<any[]>([]);
     const [showPageSelector, setShowPageSelector] = useState(false);
+    const [fbDebugInfo, setFbDebugInfo] = useState<any>(null);
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
     const [showLinkedInDisconnectConfirm, setShowLinkedInDisconnectConfirm] = useState(false);
 
@@ -314,6 +315,7 @@ export default function SettingsPage() {
 
     const fetchPages = async (userAccessToken: string) => {
         setIsConnecting(true);
+        setFbDebugInfo(null);
         console.log("Fetching pages with direct Graph API call...");
         console.log("User access token (first 20 chars):", userAccessToken?.substring(0, 20) + "...");
         try {
@@ -327,6 +329,7 @@ export default function SettingsPage() {
 
             if (response.error) {
                 console.error("Facebook Graph API error:", response.error);
+                setFbDebugInfo({ type: "API_ERROR", data: response.error });
                 alert(`Facebook Error: ${response.error.message}`);
             } else if (response.data && response.data.length > 0) {
                 console.log(`Found ${response.data.length} page(s):`, response.data.map((p: any) => p.name));
@@ -334,11 +337,13 @@ export default function SettingsPage() {
                 setShowPageSelector(true);
             } else {
                 console.warn("No pages returned from Graph API. Full response:", JSON.stringify(response));
+                setFbDebugInfo({ type: "EMPTY_ARRAY", data: response });
                 setFbPages([]);
                 setShowPageSelector(true);
             }
         } catch (err: any) {
             console.error("Fetch error:", err);
+            setFbDebugInfo({ type: "NETWORK_ERROR", data: err.message });
             alert("Failed to fetch Facebook pages: " + err.message);
         } finally {
             setIsConnecting(false);
@@ -1220,6 +1225,12 @@ export default function SettingsPage() {
                                                         >
                                                             🔄 Refresh & Choose Pages
                                                         </button>
+                                                        {fbDebugInfo && (
+                                                            <div className="mt-4 p-4 text-left bg-gray-100 rounded-xl overflow-auto text-[10px] font-mono whitespace-pre-wrap max-h-[150px] border border-gray-200 text-gray-700">
+                                                                <div className="font-bold text-red-500 mb-2">Debug Info ({fbDebugInfo.type}):</div>
+                                                                {JSON.stringify(fbDebugInfo.data, null, 2)}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             )}
