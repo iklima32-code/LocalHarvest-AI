@@ -317,27 +317,31 @@ export default function SettingsPage() {
         setIsConnecting(true);
         setFbDebugInfo(null);
         console.log("Fetching pages with direct Graph API call...");
-        console.log("User access token (first 20 chars):", userAccessToken?.substring(0, 20) + "...");
         try {
-            const graphUrl = `https://graph.facebook.com/v25.0/me/accounts?access_token=${encodeURIComponent(userAccessToken)}&fields=id,name,access_token,category&debug=all`;
-            console.log("Graph API URL:", graphUrl.replace(userAccessToken, "TOKEN_HIDDEN"));
+            const timestamp = new Date().getTime();
+            const graphUrl = `https://graph.facebook.com/v25.0/me/accounts?access_token=${encodeURIComponent(userAccessToken)}&fields=id,name,access_token,category&debug=all&_t=${timestamp}`;
+            const permUrl = `https://graph.facebook.com/v25.0/me/permissions?access_token=${encodeURIComponent(userAccessToken)}&_t=${timestamp}`;
 
-            const res = await fetch(graphUrl);
+            // Fetch permissions first for debugging
+            const permRes = await fetch(permUrl, { cache: "no-store" });
+            const permData = await permRes.json();
+            console.log("Permissions Data:", permData);
+
+            // Fetch pages
+            const res = await fetch(graphUrl, { cache: "no-store" });
             const response = await res.json();
-
-            console.log("Graph API /me/accounts response:", JSON.stringify(response));
 
             if (response.error) {
                 console.error("Facebook Graph API error:", response.error);
-                setFbDebugInfo({ type: "API_ERROR", data: response.error });
+                setFbDebugInfo({ type: "API_ERROR", data: response.error, permissions: permData });
                 alert(`Facebook Error: ${response.error.message}`);
             } else if (response.data && response.data.length > 0) {
-                console.log(`Found ${response.data.length} page(s):`, response.data.map((p: any) => p.name));
+                console.log(`Found ${response.data.length} page(s)`);
                 setFbPages(response.data);
                 setShowPageSelector(true);
             } else {
-                console.warn("No pages returned from Graph API. Full response:", JSON.stringify(response));
-                setFbDebugInfo({ type: "EMPTY_ARRAY", data: response });
+                console.warn("No pages returned. Full response:", JSON.stringify(response));
+                setFbDebugInfo({ type: "EMPTY_ARRAY", data: response, permissions: permData });
                 setFbPages([]);
                 setShowPageSelector(true);
             }
