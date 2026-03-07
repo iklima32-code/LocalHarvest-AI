@@ -62,7 +62,7 @@ export default function Integrations() {
                 setIsConnecting(false);
                 alert("User cancelled login or did not fully authorize.");
             }
-        }, { scope: 'pages_manage_posts,pages_read_engagement,pages_show_list,business_management' });
+        }, { scope: 'pages_manage_posts,pages_read_engagement,pages_show_list' });
     };
 
     const fetchPages = (userAccessToken: string) => {
