@@ -77,16 +77,20 @@ export default function Integrations() {
         console.log("Fetching pages with access token...");
         window.FB.api('/me/accounts', { access_token: userAccessToken }, (response: any) => {
             console.log("FB /me/accounts response:", response);
+            
             if (response && response.data) {
+                // Remove auto-connect logic to maintain the 2-step flow
                 setFbPages(response.data);
                 setShowPageSelector(true);
+                setIsConnecting(false);
             } else if (response.error) {
                 console.error("FB API Error:", response.error);
                 alert(`Facebook Error: ${response.error.message}`);
+                setIsConnecting(false);
             } else {
                 alert("Could not fetch your Facebook pages. Please ensure you have at least one Business Page.");
+                setIsConnecting(false);
             }
-            setIsConnecting(false);
         });
     };
 
@@ -239,20 +243,26 @@ export default function Integrations() {
                                 {isConnecting ? <div className="w-5 h-5 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin"></div> : <span>⚠️ Disconnect Facebook Page</span>}
                             </button>
                         ) : (
-                            <button
-                                disabled={isConnecting}
-                                onClick={handleFbLogin}
-                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-[40px] shadow-xl shadow-blue-600/30 flex items-center justify-center gap-4 transition-all group active:scale-95 disabled:opacity-70 disabled:grayscale"
-                            >
-                                {isConnecting ? (
-                                    <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                ) : (
-                                    <>
-                                        <span className="text-2xl group-hover:scale-125 transition-transform duration-300">🔗</span>
-                                        <span className="text-lg">Connect Farm Page</span>
-                                    </>
-                                )}
-                            </button>
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-2 px-1">
+                                    <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-[10px] font-black">1</span>
+                                    <span className="text-[10px] font-black text-blue-600 tracking-widest uppercase">Step 1 of 2: Authorize Facebook</span>
+                                </div>
+                                <button
+                                    disabled={isConnecting}
+                                    onClick={handleFbLogin}
+                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-[40px] shadow-xl shadow-blue-600/30 flex items-center justify-center gap-4 transition-all group active:scale-95 disabled:opacity-70 disabled:grayscale"
+                                >
+                                    {isConnecting ? (
+                                        <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                    ) : (
+                                        <>
+                                            <span className="text-2xl group-hover:scale-125 transition-transform duration-300">🔗</span>
+                                            <span className="text-lg uppercase whitespace-nowrap">Step 1: Connect Facebook</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
                         )}
                     </div>
 
@@ -260,9 +270,13 @@ export default function Integrations() {
                     {showPageSelector && (
                         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-5 backdrop-blur-sm">
                             <div className="bg-white rounded-[32px] max-w-md w-full overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
-                                <div className="p-8 border-b border-gray-50">
-                                    <h3 className="text-2xl font-black text-gray-800">Select Your Page</h3>
-                                    <p className="text-gray-500 text-sm mt-2">Which Facebook Business Page represents your farm?</p>
+                                <div className="p-8 border-b border-gray-50 flex flex-col gap-2 font-medium">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-[10px] font-black tracking-tight">2</span>
+                                        <span className="text-[10px] font-black text-blue-600 tracking-widest uppercase">Step 2 of 2</span>
+                                    </div>
+                                    <h3 className="text-2xl font-black text-gray-800 tracking-tight">Select Your Farm Page</h3>
+                                    <p className="text-gray-500 text-sm">Which page represents your farm business?</p>
                                 </div>
                                 <div className="p-4 max-h-[400px] overflow-y-auto">
                                     {fbPages.length > 0 ? (
