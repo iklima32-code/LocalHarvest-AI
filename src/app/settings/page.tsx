@@ -291,6 +291,8 @@ export default function SettingsPage() {
             console.log("FB Login Response:", response);
             if (response.authResponse) {
                 const userAccessToken = response.authResponse.accessToken;
+                console.log("FB granted scopes:", response.authResponse.grantedScopes);
+                console.log("FB user access token received, length:", userAccessToken?.length);
                 fetchPages(userAccessToken);
             } else {
                 setIsConnecting(false);
@@ -307,18 +309,28 @@ export default function SettingsPage() {
 
     const fetchPages = (userAccessToken: string) => {
         setIsConnecting(true);
-        window.FB.api('/me/accounts', { access_token: userAccessToken }, (response: any) => {
-            if (response && response.data) {
-                setFbPages(response.data);
-                setShowPageSelector(true);
-            } else if (response.error) {
-                alert(`Facebook Error: ${response.error.message}`);
-            } else {
-                setFbPages([]);
-                setShowPageSelector(true);
+        console.log("Fetching pages with user access token...");
+        window.FB.api(
+            '/me/accounts',
+            { access_token: userAccessToken, fields: 'id,name,access_token,category' },
+            (response: any) => {
+                console.log("FB /me/accounts response:", JSON.stringify(response));
+                if (response.error) {
+                    console.error("Facebook API error:", response.error);
+                    alert(`Facebook Error: ${response.error.message}`);
+                } else if (response.data && response.data.length > 0) {
+                    console.log(`Found ${response.data.length} page(s):`, response.data.map((p: any) => p.name));
+                    setFbPages(response.data);
+                    setShowPageSelector(true);
+                } else {
+                    console.warn("No pages returned. response.data:", response.data);
+                    // The user may not have granted page permissions — re-request with auth_type
+                    setFbPages([]);
+                    setShowPageSelector(true);
+                }
+                setIsConnecting(false);
             }
-            setIsConnecting(false);
-        });
+        );
     };
 
     const connectPage = async (page: any) => {
