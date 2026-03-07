@@ -67,7 +67,7 @@ export default function Integrations() {
                 }
             }
         }, { 
-            scope: 'public_profile,email,pages_manage_posts,pages_read_engagement,pages_show_list',
+            scope: 'pages_manage_posts,pages_read_engagement,pages_show_list',
             auth_type: 'rerequest',
             return_scopes: true 
         });
