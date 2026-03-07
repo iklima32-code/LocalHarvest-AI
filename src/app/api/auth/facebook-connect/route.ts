@@ -1,14 +1,28 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 import { encryptToken } from "@/lib/encryption";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export async function POST(req: Request) {
     try {
         const { pageId, pageName, pageAccessToken } = await req.json();
+        const authHeader = req.headers.get("Authorization");
+
+        if (!authHeader) {
+            return NextResponse.json({ error: "Missing authorization header" }, { status: 401 });
+        }
+
+        // Create a server-side Supabase client with the user's auth token
+        const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+            global: { headers: { Authorization: authHeader } }
+        });
 
         // 1. Get current authenticated user
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user) {
+            console.error("Auth error in API:", authError);
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
@@ -28,7 +42,7 @@ export async function POST(req: Request) {
 
         if (updateError) {
             console.error("Database update error:", updateError);
-            return NextResponse.json({ error: "Failed to save to database" }, { status: 500 });
+            return NextResponse.json({ error: "Failed to save to database: " + updateError.message }, { status: 500 });
         }
 
         return NextResponse.json({ success: true });
