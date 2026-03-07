@@ -1,5 +1,12 @@
 "use client";
 
+declare global {
+    interface Window {
+        fbAsyncInit: () => void;
+        FB: any;
+    }
+}
+
 import { useState, useEffect } from "react";
 import Header from "@/components/Header";
 import { supabase } from "@/lib/supabase";
@@ -52,6 +59,12 @@ export default function SettingsPage() {
         voiceSample3Url: ""
     });
 
+    const [profile, setProfile] = useState<any>(null);
+    const [isConnecting, setIsConnecting] = useState(false);
+    const [fbPages, setFbPages] = useState<any[]>([]);
+    const [showPageSelector, setShowPageSelector] = useState(false);
+    const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+
     const [activeAudio, setActiveAudio] = useState<HTMLAudioElement | null>(null);
 
     useEffect(() => {
@@ -59,6 +72,24 @@ export default function SettingsPage() {
     }, []);
 
     useEffect(() => {
+        // Load Facebook SDK
+        (function (d, s, id) {
+            var js, fjs = d.getElementsByTagName(s)[0];
+            if (d.getElementById(id)) return;
+            js = d.createElement(s) as HTMLScriptElement; js.id = id;
+            js.src = "https://connect.facebook.net/en_US/sdk.js";
+            fjs.parentNode?.insertBefore(js, fjs);
+        }(document, 'script', 'facebook-jssdk'));
+
+        (window as any).fbAsyncInit = function () {
+            (window as any).FB.init({
+                appId: '2454032635058947', // ROI-MUSE App ID
+                cookie: true,
+                xfbml: true,
+                version: 'v22.0'
+            });
+        };
+
         return () => {
             if (activeAudio) {
                 activeAudio.pause();
@@ -66,7 +97,6 @@ export default function SettingsPage() {
             }
         };
     }, [activeAudio]);
-
     const fetchProfile = async () => {
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -80,6 +110,7 @@ export default function SettingsPage() {
 
             if (error) throw error;
             if (data) {
+                setProfile(data);
                 setFormData({
                     farmName: data.farm_name || "",
                     farmType: data.farm_type || "Organic Vegetable Farm",
@@ -239,6 +270,100 @@ export default function SettingsPage() {
         }
     };
 
+    const handleFbLogin = () => {
+        setIsConnecting(true);
+        window.FB.login((response: any) => {
+            console.log("FB Login Response:", response);
+            if (response.authResponse) {
+                const userAccessToken = response.authResponse.accessToken;
+                fetchPages(userAccessToken);
+            } else {
+                setIsConnecting(false);
+                if (response.status !== 'unknown') {
+                    alert("Facebook Authorization failed: " + response.status);
+                }
+            }
+        }, { 
+            scope: 'pages_manage_posts,pages_read_engagement,pages_show_list',
+            auth_type: 'rerequest',
+            return_scopes: true 
+        });
+    };
+
+    const fetchPages = (userAccessToken: string) => {
+        setIsConnecting(true);
+        window.FB.api('/me/accounts', { access_token: userAccessToken }, (response: any) => {
+            if (response && response.data) {
+                setFbPages(response.data);
+                setShowPageSelector(true);
+            } else if (response.error) {
+                alert(`Facebook Error: ${response.error.message}`);
+            } else {
+                setFbPages([]);
+                setShowPageSelector(true);
+            }
+            setIsConnecting(false);
+        });
+    };
+
+    const connectPage = async (page: any) => {
+        setIsConnecting(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error("No active session found. Please log in again.");
+
+            const res = await fetch("/api/auth/facebook-connect", {
+                method: "POST",
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({
+                    pageId: page.id,
+                    pageName: page.name,
+                    pageAccessToken: page.access_token
+                })
+            });
+
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error || "Failed to save connection.");
+
+            const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+            setProfile(data);
+            setShowPageSelector(false);
+            setMessage({ type: "success", text: `Successfully connected to ${page.name}! 🎉` });
+            setTimeout(() => setMessage({ type: "", text: "" }), 3000);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setIsConnecting(false);
+        }
+    };
+
+    const disconnectFb = async () => {
+        setShowDisconnectConfirm(false);
+        setIsConnecting(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const { error } = await supabase.from('profiles').update({
+                fb_page_id: null,
+                fb_page_access_token: null,
+                fb_page_name: null,
+                fb_connected_at: null
+            }).eq('id', user?.id);
+
+            if (error) throw error;
+
+            const { data } = await supabase.from('profiles').select('*').eq('id', user?.id).single();
+            setProfile(data);
+            setMessage({ type: "success", text: "Facebook disconnected successfully." });
+            setTimeout(() => setMessage({ type: "", text: "" }), 3000);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setIsConnecting(false);
+        }
+    };
     if (loading) {
         return (
             <div className="min-h-screen bg-[#f8faf8] flex items-center justify-center">
@@ -719,61 +844,101 @@ export default function SettingsPage() {
                                         </div>
                                     </div>
                                 )}
-
                                 {activeTab === 'connections' && (
                                     <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
-                                        <div className="mb-10">
-                                            <h2 className="text-2xl font-extrabold text-[#333] tracking-tight">Connections & Integrations</h2>
-                                            <p className="text-gray-600 mt-2">Connect Local Harvest to your favorite marketing tools and social media platforms.</p>
-                                        </div>
-
+                                        <h2 className="text-2xl font-extrabold text-[#333] mb-8">Connections & Integrations</h2>
+                                        
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                             {/* Facebook Integration Card */}
-                                            <div className="bg-white p-8 rounded-[32px] border-2 border-transparent hover:border-blue-100 transition-all shadow-sm">
+                                            <div className={`p-8 rounded-[40px] border-2 transition-all duration-300 relative group overflow-hidden ${profile?.fb_page_id ? 'bg-blue-50/30 border-blue-200' : 'bg-white border-transparent hover:border-gray-50 shadow-sm border-gray-100'}`}>
+                                                {profile?.fb_page_id && (
+                                                    <div className="absolute top-0 right-0 py-2 px-6 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-bl-3xl">
+                                                        Active Connection
+                                                    </div>
+                                                )}
+
                                                 <div className="flex justify-between items-start mb-6">
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-3xl font-bold">
+                                                    <div className="flex items-center gap-5">
+                                                        <div className="w-16 h-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center text-4xl font-bold shadow-lg shadow-blue-600/30">
                                                             f
                                                         </div>
-                                                        <div>
-                                                            <h3 className="text-xl font-bold text-gray-800">Facebook</h3>
-                                                            <span className="inline-block px-2 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded mt-1">Social Media</span>
+                                                        <div className="space-y-1">
+                                                            <h3 className="text-2xl font-black text-gray-800 tracking-tight">Facebook</h3>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                                                                <span className="text-gray-500 text-xs font-bold uppercase tracking-wider">Social Media Publisher</span>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                    <span className="px-3 py-1 bg-gray-100 text-gray-500 text-xs font-bold rounded-full uppercase tracking-wider">
-                                                        Not Connected
-                                                    </span>
                                                 </div>
 
-                                                <p className="text-gray-600 text-sm mb-8 leading-relaxed">
-                                                    Publish AI-generated captions and images directly to your Farm's Business Page. Connect your account to enable one-click scheduling and publishing.
-                                                </p>
+                                                {profile?.fb_page_id ? (
+                                                    <div className="mb-8 p-6 bg-white rounded-3xl border border-blue-100 shadow-sm animate-in slide-in-from-bottom-2 duration-500">
+                                                        <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-2">Connected Page</span>
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 font-bold text-xl uppercase border border-blue-100">
+                                                                {profile.fb_page_name?.charAt(0)}
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-xl font-black text-gray-800">{profile.fb_page_name}</div>
+                                                                <div className="text-xs text-gray-400 font-medium">Auto-publishing enabled</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="mb-10 space-y-4">
+                                                        <p className="text-gray-500 text-sm leading-relaxed font-medium">
+                                                            Automagically post your harvest updates, AI captions, and farm photos directly to your Business Page with one click.
+                                                        </p>
+                                                        <div className="flex flex-wrap gap-2 text-[10px] font-bold">
+                                                            <span className="px-3 py-1 bg-gray-50 text-gray-400 rounded-full border border-gray-100">Captions</span>
+                                                            <span className="px-3 py-1 bg-gray-50 text-gray-400 rounded-full border border-gray-100">Images</span>
+                                                            <span className="px-3 py-1 bg-gray-50 text-gray-400 rounded-full border border-gray-100">Analytics</span>
+                                                        </div>
+                                                    </div>
+                                                )}
 
-                                                <div className="bg-gray-50 p-6 rounded-[24px] border border-gray-100 mb-6">
-                                                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.15em] mb-4">Permissions needed</div>
-                                                    <ul className="text-sm text-gray-600 space-y-3">
-                                                        <li className="flex gap-3 items-center">
-                                                            <span className="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-[10px]">✓</span>
-                                                            Create posts on your Page
-                                                        </li>
-                                                        <li className="flex gap-3 items-center">
-                                                            <span className="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-[10px]">✓</span>
-                                                            Upload photos
-                                                        </li>
-                                                        <li className="flex gap-3 items-center">
-                                                            <span className="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-[10px]">✓</span>
-                                                            Read Page insights
-                                                        </li>
-                                                    </ul>
-                                                </div>
-
-                                                <button
-                                                    type="button"
-                                                    className="w-full bg-[#1877F2] hover:bg-[#166fe5] text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-600/20 flex items-center justify-center gap-3 transition-all"
-                                                    onClick={() => window.location.href = "/settings/integrations"}
-                                                >
-                                                    <span className="text-xl">🔗</span> Connect Facebook Page
-                                                </button>
+                                                {profile?.fb_page_id ? (
+                                                    <>
+                                                        <div className="bg-gray-50/50 p-6 rounded-[32px] border border-gray-100 mb-8">
+                                                            <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Connection Details</div>
+                                                            <div className="grid grid-cols-1 gap-3">
+                                                                <div className="flex items-center gap-3 text-sm font-bold text-gray-600">
+                                                                    <span className="flex-shrink-0 w-6 h-6 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-xs">✓</span>
+                                                                    Auto-publishing Active
+                                                                </div>
+                                                                <div className="flex items-center gap-3 text-sm font-bold text-gray-600">
+                                                                    <span className="flex-shrink-0 w-6 h-6 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-xs">✓</span>
+                                                                    Secure Token Encryption
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowDisconnectConfirm(true)}
+                                                            disabled={isConnecting}
+                                                            className="w-full py-4 bg-white border-2 border-red-50 text-red-500 font-black rounded-2xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                                                        >
+                                                            {isConnecting ? <div className="w-5 h-5 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin"></div> : <span>⚠️ Disconnect Facebook Page</span>}
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        disabled={isConnecting}
+                                                        onClick={handleFbLogin}
+                                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-[40px] shadow-xl shadow-blue-600/30 flex items-center justify-center gap-4 transition-all group active:scale-95 disabled:opacity-70 disabled:grayscale"
+                                                    >
+                                                        {isConnecting ? (
+                                                            <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                                        ) : (
+                                                            <>
+                                                                <span className="text-2xl group-hover:scale-125 transition-transform duration-300">🔗</span>
+                                                                <span className="text-lg">Connect Facebook Page</span>
+                                                            </>
+                                                        )}
+                                                    </button>
+                                                )}
                                             </div>
 
                                             {/* Instagram Integration Card (Coming Soon) */}
@@ -834,6 +999,76 @@ export default function SettingsPage() {
                                 )}
                             </div>
 
+                            {/* Page Selection Modal Overlay */}
+                            {showPageSelector && (
+                                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-5 backdrop-blur-sm">
+                                    <div className="bg-white rounded-[32px] max-w-md w-full overflow-hidden shadow-2xl">
+                                        <div className="p-8 border-b border-gray-50 flex flex-col gap-2 font-medium">
+                                            <h3 className="text-2xl font-black text-gray-800 tracking-tight">Select Farm Page</h3>
+                                            <p className="text-gray-500 text-sm">Pick the business page to represent your farm.</p>
+                                        </div>
+                                        <div className="p-4 max-h-[400px] overflow-y-auto">
+                                            {fbPages.length > 0 ? (
+                                                fbPages.map(page => (
+                                                    <button
+                                                        key={page.id}
+                                                        type="button"
+                                                        onClick={() => connectPage(page)}
+                                                        className="w-full flex items-center justify-between p-4 hover:bg-blue-50 rounded-2xl transition-all border-2 border-transparent hover:border-blue-200 group mb-2"
+                                                    >
+                                                        <div className="flex items-center gap-4 text-left">
+                                                            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-xl uppercase">
+                                                                {page.name.charAt(0)}
+                                                            </div>
+                                                            <div>
+                                                                <div className="font-bold text-gray-800 group-hover:text-blue-700">{page.name}</div>
+                                                                <div className="text-[10px] text-gray-400 font-bold uppercase">{page.category}</div>
+                                                            </div>
+                                                        </div>
+                                                        <span className="text-blue-400 group-hover:translate-x-1 transition-transform">→</span>
+                                                    </button>
+                                                ))
+                                            ) : (
+                                                <div className="p-10 text-center">
+                                                    <div className="text-4xl mb-4 grayscale opacity-30">📋</div>
+                                                    <div className="font-black text-gray-800 text-xl tracking-tight">No Business Pages Found</div>
+                                                    <div className="mt-8 flex flex-col gap-4">
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleFbLogin}
+                                                            className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl shadow-lg active:scale-95"
+                                                        >
+                                                            🔄 Refresh & Choose Pages
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="p-8 bg-gray-50">
+                                            <button type="button" onClick={() => setShowPageSelector(false)} className="w-full font-bold text-gray-500">Cancel</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Disconnect Confirmation Modal */}
+                            {showDisconnectConfirm && (
+                                <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-5 backdrop-blur-sm">
+                                    <div className="bg-white rounded-[40px] max-w-sm w-full overflow-hidden shadow-2xl">
+                                        <div className="p-10 text-center">
+                                            <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-6">⚠️</div>
+                                            <h3 className="text-2xl font-black text-gray-800 tracking-tight mb-3">Wait a moment!</h3>
+                                            <p className="text-gray-500 text-sm leading-relaxed mb-8">
+                                                Are you sure you want to disconnect <span className="font-bold">{profile?.fb_page_name}</span>?
+                                            </p>
+                                            <div className="flex flex-col gap-3">
+                                                <button type="button" onClick={disconnectFb} className="w-full py-4 bg-red-500 text-white font-black rounded-2xl">Yes, Disconnect</button>
+                                                <button type="button" onClick={() => setShowDisconnectConfirm(false)} className="w-full py-4 bg-gray-50 text-gray-500 font-bold rounded-2xl">Keep Connected</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                             {/* Sticky Save Footer */}
                             <div className="p-8 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
                                 <div className="text-sm">
