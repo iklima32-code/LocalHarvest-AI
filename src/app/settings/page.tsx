@@ -102,7 +102,7 @@ export default function SettingsPage() {
                 appId: '2454032635058947', // ROI-MUSE App ID
                 cookie: true,
                 xfbml: true,
-                version: 'v22.0'
+                version: 'v25.0'
             });
         };
 
@@ -319,7 +319,7 @@ export default function SettingsPage() {
         console.log("Fetching pages with direct Graph API call...");
         console.log("User access token (first 20 chars):", userAccessToken?.substring(0, 20) + "...");
         try {
-            const graphUrl = `https://graph.facebook.com/v22.0/me/accounts?access_token=${encodeURIComponent(userAccessToken)}&fields=id,name,access_token,category&debug=all`;
+            const graphUrl = `https://graph.facebook.com/v25.0/me/accounts?access_token=${encodeURIComponent(userAccessToken)}&fields=id,name,access_token,category&debug=all`;
             console.log("Graph API URL:", graphUrl.replace(userAccessToken, "TOKEN_HIDDEN"));
 
             const res = await fetch(graphUrl);
