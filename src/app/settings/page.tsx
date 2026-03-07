@@ -307,30 +307,37 @@ export default function SettingsPage() {
         });
     };
 
-    const fetchPages = (userAccessToken: string) => {
+    const fetchPages = async (userAccessToken: string) => {
         setIsConnecting(true);
-        console.log("Fetching pages with user access token...");
-        window.FB.api(
-            '/me/accounts',
-            { access_token: userAccessToken, fields: 'id,name,access_token,category' },
-            (response: any) => {
-                console.log("FB /me/accounts response:", JSON.stringify(response));
-                if (response.error) {
-                    console.error("Facebook API error:", response.error);
-                    alert(`Facebook Error: ${response.error.message}`);
-                } else if (response.data && response.data.length > 0) {
-                    console.log(`Found ${response.data.length} page(s):`, response.data.map((p: any) => p.name));
-                    setFbPages(response.data);
-                    setShowPageSelector(true);
-                } else {
-                    console.warn("No pages returned. response.data:", response.data);
-                    // The user may not have granted page permissions — re-request with auth_type
-                    setFbPages([]);
-                    setShowPageSelector(true);
-                }
-                setIsConnecting(false);
+        console.log("Fetching pages with direct Graph API call...");
+        console.log("User access token (first 20 chars):", userAccessToken?.substring(0, 20) + "...");
+        try {
+            const graphUrl = `https://graph.facebook.com/v22.0/me/accounts?access_token=${encodeURIComponent(userAccessToken)}&fields=id,name,access_token,category`;
+            console.log("Graph API URL:", graphUrl.replace(userAccessToken, "TOKEN_HIDDEN"));
+
+            const res = await fetch(graphUrl);
+            const response = await res.json();
+
+            console.log("Graph API /me/accounts response:", JSON.stringify(response));
+
+            if (response.error) {
+                console.error("Facebook Graph API error:", response.error);
+                alert(`Facebook Error: ${response.error.message}`);
+            } else if (response.data && response.data.length > 0) {
+                console.log(`Found ${response.data.length} page(s):`, response.data.map((p: any) => p.name));
+                setFbPages(response.data);
+                setShowPageSelector(true);
+            } else {
+                console.warn("No pages returned from Graph API. Full response:", JSON.stringify(response));
+                setFbPages([]);
+                setShowPageSelector(true);
             }
-        );
+        } catch (err: any) {
+            console.error("Fetch error:", err);
+            alert("Failed to fetch Facebook pages: " + err.message);
+        } finally {
+            setIsConnecting(false);
+        }
     };
 
     const connectPage = async (page: any) => {
