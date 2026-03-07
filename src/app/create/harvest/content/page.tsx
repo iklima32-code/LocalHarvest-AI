@@ -50,9 +50,9 @@ function HarvestContentInner() {
 
     // New View States
     const [view, setView] = useState<"review" | "preview">("review");
-    const [scheduleType, setScheduleType] = useState<"now" | "later" | "personal" | "instagram" | "linkedin">("personal");
+    const [scheduleType, setScheduleType] = useState<"now" | "later" | "personal" | "instagram" | "business" | "linkedin">("personal");
     const [isPreviewEditing, setIsPreviewEditing] = useState(false);
-
+    const [showSuccessModal, setShowSuccessModal] = useState<{ platform: string; message: string } | null>(null);
 
 
     const handleCopy = (e: React.MouseEvent | null, text: string, idx: number | null) => {
@@ -253,17 +253,53 @@ function HarvestContentInner() {
 
                 setIsPublishing(false);
                 setShowPublishModal(false);
-                alert("Successfully published to LinkedIn!");
+                setShowSuccessModal({ platform: "linkedin", message: "Your harvest update is now live on LinkedIn!" });
             } catch (err: any) {
                 setIsPublishing(false);
                 console.error("LinkedIn publish error:", err);
                 if (err.message.includes("not connected") || err.message.includes("LinkedIn not connected")) {
-                    alert("LinkedIn is not connected. Please go to Settings > Integrations to connect your LinkedIn account.");
+                    alert("LinkedIn is not connected. Please go to Settings to connect your LinkedIn account.");
                 } else {
                     alert(`Error publishing to LinkedIn: ${err.message}`);
                 }
             }
             return;
+        }
+
+        if (scheduleType === "business") {
+            setIsPublishing(true);
+            try {
+                const res = await fetch("/api/publish-facebook", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        caption: captionToPost,
+                        imageUrl: photoToPost,
+                        postBusiness: true,
+                        postPersonal: false
+                    })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.error || data.details || "Failed to publish to Facebook");
+                }
+
+                setShowSuccessModal({ platform: "facebook", message: "Your harvest update is now live on your Facebook Business Page!" });
+                setIsPublishing(false);
+                setShowPublishModal(false);
+                return;
+            } catch (err: any) {
+                setIsPublishing(false);
+                console.error("Facebook Business publish error:", err);
+                if (err.message.includes("credentials")) {
+                    alert(`⚠️ Missing Facebook API Keys:\n\nTo actually post to your Business Page, you need to add FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN to your .env file.`);
+                } else {
+                    alert(`Error publishing to Facebook: ${err.message}`);
+                }
+                return;
+            }
         }
 
         // Logic for other types (if ever enabled)
@@ -432,7 +468,7 @@ function HarvestContentInner() {
                                 {isPreviewEditing ? (
                                     <div className="space-y-4 mb-6">
                                         <textarea
-                                            value={editedCaption}
+                                            value={editedCaption || ""}
                                             onChange={(e) => setEditedCaption(e.target.value)}
                                             className="w-full min-h-[120px] p-4 bg-gray-50 border-2 border-harvest-green rounded-xl outline-none font-medium text-gray-800 text-sm leading-relaxed"
                                             placeholder="Write your caption..."
@@ -441,7 +477,7 @@ function HarvestContentInner() {
                                         />
                                         <input
                                             type="text"
-                                            value={editedHashtags}
+                                            value={editedHashtags || ""}
                                             onChange={(e) => setEditedHashtags(e.target.value)}
                                             className="w-full p-3 bg-gray-50 border-2 border-harvest-green rounded-xl outline-none font-bold text-harvest-green text-xs"
                                             placeholder="#hashtags"
@@ -501,7 +537,20 @@ function HarvestContentInner() {
                                             <span className="text-[10px] text-gray-400 font-medium tracking-tight">Opens Facebook dialog & copies content to clipboard</span>
                                         </div>
                                     </div>
-                                    <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'personal'} onChange={() => setScheduleType('personal')} />
+                                    <input type="radio" className="hidden" name="schedule" value="personal" checked={scheduleType === 'personal'} onChange={() => setScheduleType('personal')} />
+                                </label>
+
+                                <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'business' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${scheduleType === 'business' ? 'border-[#006633]' : 'border-gray-300'}`}>
+                                            {scheduleType === 'business' && <div className="w-3 h-3 bg-[#006633] rounded-full"></div>}
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className={`font-bold ${scheduleType === 'business' ? 'text-gray-900' : 'text-gray-500'}`}>Publish to Facebook Business Page</span>
+                                            <span className="text-[10px] text-gray-400 font-medium tracking-tight">Directly posts to your connected farm page</span>
+                                        </div>
+                                    </div>
+                                    <input type="radio" className="hidden" name="schedule" value="business" checked={scheduleType === 'business'} onChange={() => setScheduleType('business')} />
                                 </label>
 
                                 <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'instagram' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
@@ -514,7 +563,7 @@ function HarvestContentInner() {
                                             <span className="text-[10px] text-gray-400 font-medium tracking-tight">Opens Instagram & copies content to clipboard</span>
                                         </div>
                                     </div>
-                                    <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'instagram'} onChange={() => setScheduleType('instagram')} />
+                                    <input type="radio" className="hidden" name="schedule" value="instagram" checked={scheduleType === 'instagram'} onChange={() => setScheduleType('instagram')} />
                                 </label>
 
                                 <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'linkedin' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
@@ -576,6 +625,88 @@ function HarvestContentInner() {
                     </div>
                 </div>
 
+                {/* Success Modal (Preview View) */}
+                {showSuccessModal && (
+                    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-5 backdrop-blur-sm" style={{ animation: 'fadeIn 0.3s ease-out' }}>
+                        <div className="bg-white rounded-[40px] max-w-sm w-full overflow-hidden shadow-2xl" style={{ animation: 'scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
+                            <div className="relative p-10 text-center overflow-hidden">
+                                <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                                    {[...Array(12)].map((_, i) => (
+                                        <div
+                                            key={i}
+                                            className="absolute rounded-full"
+                                            style={{
+                                                width: `${6 + Math.random() * 8}px`,
+                                                height: `${6 + Math.random() * 8}px`,
+                                                background: ['#0a66c2', '#006633', '#22c55e', '#3b82f6', '#f59e0b', '#ec4899'][i % 6],
+                                                left: `${10 + Math.random() * 80}%`,
+                                                top: '-10%',
+                                                opacity: 0.7,
+                                                animation: `confettiFall ${1.5 + Math.random() * 2}s ease-out ${Math.random() * 0.5}s forwards`,
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                                <div className={`w-24 h-24 mx-auto mb-8 rounded-[28px] flex items-center justify-center text-white text-5xl shadow-xl ${showSuccessModal.platform === 'linkedin'
+                                        ? 'bg-gradient-to-br from-[#0a66c2] to-[#004182] shadow-[#0a66c2]/30'
+                                        : showSuccessModal.platform === 'facebook'
+                                            ? 'bg-gradient-to-br from-[#1877f2] to-[#0d47a1] shadow-blue-600/30'
+                                            : 'bg-gradient-to-br from-[#006633] to-[#004d26] shadow-green-900/30'
+                                    }`} style={{ animation: 'bounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both' }}>
+                                    {showSuccessModal.platform === 'linkedin' ? (
+                                        <span style={{ fontFamily: 'serif', fontWeight: 900 }}>in</span>
+                                    ) : showSuccessModal.platform === 'facebook' ? (
+                                        <span style={{ fontWeight: 900 }}>f</span>
+                                    ) : (
+                                        <span>✓</span>
+                                    )}
+                                </div>
+                                <div className="absolute top-[52px] left-1/2 -translate-x-1/2 w-28 h-28 rounded-[32px] border-4 opacity-20" style={{
+                                    borderColor: showSuccessModal.platform === 'linkedin' ? '#0a66c2' : showSuccessModal.platform === 'facebook' ? '#1877f2' : '#006633',
+                                    animation: 'ringPulse 2s ease-in-out infinite'
+                                }} />
+                                <h3 className="text-2xl font-black text-gray-900 tracking-tight mb-2" style={{ animation: 'slideUp 0.5s ease-out 0.3s both' }}>
+                                    Published Successfully! 🎉
+                                </h3>
+                                <p className="text-gray-500 text-sm leading-relaxed mb-8" style={{ animation: 'slideUp 0.5s ease-out 0.4s both' }}>
+                                    {showSuccessModal.message}
+                                </p>
+                                <div className="flex flex-col gap-3" style={{ animation: 'slideUp 0.5s ease-out 0.5s both' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowSuccessModal(null)}
+                                        className={`w-full py-4 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 ${showSuccessModal.platform === 'linkedin'
+                                                ? 'bg-[#0a66c2] hover:bg-[#004182] shadow-[#0a66c2]/30'
+                                                : showSuccessModal.platform === 'facebook'
+                                                    ? 'bg-[#1877f2] hover:bg-[#0d47a1] shadow-blue-600/30'
+                                                    : 'bg-[#006633] hover:bg-[#004d26] shadow-green-900/30'
+                                            }`}
+                                    >
+                                        Awesome!
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowSuccessModal(null);
+                                            router.push('/recent');
+                                        }}
+                                        className="w-full py-3 bg-gray-50 text-gray-500 font-bold rounded-2xl hover:bg-gray-100 transition-all"
+                                    >
+                                        View Post History
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <style jsx>{`
+                        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+                        @keyframes scaleIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+                        @keyframes bounceIn { from { opacity: 0; transform: scale(0.3) rotate(-10deg); } to { opacity: 1; transform: scale(1) rotate(0deg); } }
+                        @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+                        @keyframes ringPulse { 0%, 100% { transform: scale(1); opacity: 0.2; } 50% { transform: scale(1.15); opacity: 0.05; } }
+                        @keyframes confettiFall { 0% { transform: translateY(0) rotate(0deg); opacity: 0.8; } 100% { transform: translateY(400px) rotate(720deg); opacity: 0; } }
+                    `}</style>
+                    </div>
+                )}
             </main>
         );
     }
@@ -707,14 +838,14 @@ function HarvestContentInner() {
                                         {isEditing === idx ? (
                                             <div className="space-y-4">
                                                 <textarea
-                                                    value={editedCaption}
+                                                    value={editedCaption || ""}
                                                     onChange={(e) => setEditedCaption(e.target.value)}
                                                     className="w-full min-h-[120px] p-4 bg-white border-2 border-harvest-green rounded-xl outline-none font-medium text-gray-800 leading-relaxed"
                                                     autoFocus
                                                 />
                                                 <input
                                                     type="text"
-                                                    value={editedHashtags}
+                                                    value={editedHashtags || ""}
                                                     onChange={(e) => setEditedHashtags(e.target.value)}
                                                     className="w-full p-3 bg-white border-2 border-harvest-green rounded-xl outline-none font-bold text-harvest-green text-sm"
                                                     placeholder="#hashtags"
@@ -854,6 +985,115 @@ function HarvestContentInner() {
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* Success Modal */}
+            {showSuccessModal && (
+                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-5 backdrop-blur-sm" style={{ animation: 'fadeIn 0.3s ease-out' }}>
+                    <div className="bg-white rounded-[40px] max-w-sm w-full overflow-hidden shadow-2xl" style={{ animation: 'scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
+                        <div className="relative p-10 text-center overflow-hidden">
+                            {/* Confetti dots */}
+                            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                                {[...Array(12)].map((_, i) => (
+                                    <div
+                                        key={i}
+                                        className="absolute rounded-full"
+                                        style={{
+                                            width: `${6 + Math.random() * 8}px`,
+                                            height: `${6 + Math.random() * 8}px`,
+                                            background: ['#0a66c2', '#006633', '#22c55e', '#3b82f6', '#f59e0b', '#ec4899'][i % 6],
+                                            left: `${10 + Math.random() * 80}%`,
+                                            top: `${-10}%`,
+                                            opacity: 0.7,
+                                            animation: `confettiFall ${1.5 + Math.random() * 2}s ease-out ${Math.random() * 0.5}s forwards`,
+                                        }}
+                                    />
+                                ))}
+                            </div>
+
+                            {/* Success Icon */}
+                            <div className={`w-24 h-24 mx-auto mb-8 rounded-[28px] flex items-center justify-center text-white text-5xl shadow-xl ${showSuccessModal.platform === 'linkedin'
+                                ? 'bg-gradient-to-br from-[#0a66c2] to-[#004182] shadow-[#0a66c2]/30'
+                                : showSuccessModal.platform === 'facebook'
+                                    ? 'bg-gradient-to-br from-[#1877f2] to-[#0d47a1] shadow-blue-600/30'
+                                    : 'bg-gradient-to-br from-[#006633] to-[#004d26] shadow-green-900/30'
+                                }`} style={{ animation: 'bounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both' }}>
+                                {showSuccessModal.platform === 'linkedin' ? (
+                                    <span style={{ fontFamily: 'serif', fontWeight: 900 }}>in</span>
+                                ) : showSuccessModal.platform === 'facebook' ? (
+                                    <span style={{ fontWeight: 900 }}>f</span>
+                                ) : (
+                                    <span>✓</span>
+                                )}
+                            </div>
+
+                            {/* Animated Checkmark Ring */}
+                            <div className="absolute top-[52px] left-1/2 -translate-x-1/2 w-28 h-28 rounded-[32px] border-4 opacity-20" style={{
+                                borderColor: showSuccessModal.platform === 'linkedin' ? '#0a66c2' : showSuccessModal.platform === 'facebook' ? '#1877f2' : '#006633',
+                                animation: 'ringPulse 2s ease-in-out infinite'
+                            }} />
+
+                            <h3 className="text-2xl font-black text-gray-900 tracking-tight mb-2" style={{ animation: 'slideUp 0.5s ease-out 0.3s both' }}>
+                                Published Successfully! 🎉
+                            </h3>
+                            <p className="text-gray-500 text-sm leading-relaxed mb-8" style={{ animation: 'slideUp 0.5s ease-out 0.4s both' }}>
+                                {showSuccessModal.message}
+                            </p>
+
+                            <div className="flex flex-col gap-3" style={{ animation: 'slideUp 0.5s ease-out 0.5s both' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowSuccessModal(null)}
+                                    className={`w-full py-4 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 ${showSuccessModal.platform === 'linkedin'
+                                        ? 'bg-[#0a66c2] hover:bg-[#004182] shadow-[#0a66c2]/30'
+                                        : showSuccessModal.platform === 'facebook'
+                                            ? 'bg-[#1877f2] hover:bg-[#0d47a1] shadow-blue-600/30'
+                                            : 'bg-[#006633] hover:bg-[#004d26] shadow-green-900/30'
+                                        }`}
+                                >
+                                    Awesome!
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowSuccessModal(null);
+                                        router.push('/recent');
+                                    }}
+                                    className="w-full py-3 bg-gray-50 text-gray-500 font-bold rounded-2xl hover:bg-gray-100 transition-all"
+                                >
+                                    View Post History
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <style jsx>{`
+                        @keyframes fadeIn {
+                            from { opacity: 0; }
+                            to { opacity: 1; }
+                        }
+                        @keyframes scaleIn {
+                            from { opacity: 0; transform: scale(0.85); }
+                            to { opacity: 1; transform: scale(1); }
+                        }
+                        @keyframes bounceIn {
+                            from { opacity: 0; transform: scale(0.3) rotate(-10deg); }
+                            to { opacity: 1; transform: scale(1) rotate(0deg); }
+                        }
+                        @keyframes slideUp {
+                            from { opacity: 0; transform: translateY(16px); }
+                            to { opacity: 1; transform: translateY(0); }
+                        }
+                        @keyframes ringPulse {
+                            0%, 100% { transform: scale(1); opacity: 0.2; }
+                            50% { transform: scale(1.15); opacity: 0.05; }
+                        }
+                        @keyframes confettiFall {
+                            0% { transform: translateY(0) rotate(0deg); opacity: 0.8; }
+                            100% { transform: translateY(400px) rotate(720deg); opacity: 0; }
+                        }
+                    `}</style>
                 </div>
             )}
         </main>
