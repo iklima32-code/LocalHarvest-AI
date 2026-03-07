@@ -220,54 +220,44 @@ export default function Integrations() {
                             </div>
                         )}
 
-                        <div className="bg-gray-50/50 p-6 rounded-[32px] border border-gray-100 mb-8">
-                            <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Core Permissions</div>
-                            <div className="grid grid-cols-1 gap-3">
-                                <div className="flex items-center gap-3 text-sm font-bold text-gray-600">
-                                    <span className="flex-shrink-0 w-6 h-6 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-xs">✓</span>
-                                    Page Post Management
-                                </div>
-                                <div className="flex items-center gap-3 text-sm font-bold text-gray-600">
-                                    <span className="flex-shrink-0 w-6 h-6 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-xs">✓</span>
-                                    Media Upload Access
-                                </div>
-                            </div>
-                            {profile?.fb_page_id && (
-                                <div className="mt-4 pt-4 border-t border-gray-200/50 flex items-center gap-2 text-[10px] text-gray-400 font-bold italic">
-                                    <span>🔒</span> End-to-end encrypted integration
-                                </div>
-                            )}
-                        </div>
-
                         {profile?.fb_page_id ? (
-                            <button
-                                onClick={() => setShowDisconnectConfirm(true)}
-                                disabled={isConnecting}
-                                className="w-full py-4 bg-white border-2 border-red-50 text-red-500 hover:bg-red-50 hover:border-red-100 font-black rounded-2xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
-                            >
-                                {isConnecting ? <div className="w-5 h-5 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin"></div> : <span>⚠️ Disconnect Facebook Page</span>}
-                            </button>
-                        ) : (
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-2 px-1">
-                                    <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-[10px] font-black">1</span>
-                                    <span className="text-[10px] font-black text-blue-600 tracking-widest uppercase">Step 1 of 2: Authorize Facebook</span>
+                            <>
+                                <div className="bg-gray-50/50 p-6 rounded-[32px] border border-gray-100 mb-8">
+                                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Connection Details</div>
+                                    <div className="grid grid-cols-1 gap-3">
+                                        <div className="flex items-center gap-3 text-sm font-bold text-gray-600">
+                                            <span className="flex-shrink-0 w-6 h-6 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-xs">✓</span>
+                                            Auto-publishing Active
+                                        </div>
+                                        <div className="flex items-center gap-3 text-sm font-bold text-gray-600">
+                                            <span className="flex-shrink-0 w-6 h-6 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-xs">✓</span>
+                                            Secure Token Encryption
+                                        </div>
+                                    </div>
                                 </div>
                                 <button
+                                    onClick={() => setShowDisconnectConfirm(true)}
                                     disabled={isConnecting}
-                                    onClick={handleFbLogin}
-                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-[40px] shadow-xl shadow-blue-600/30 flex items-center justify-center gap-4 transition-all group active:scale-95 disabled:opacity-70 disabled:grayscale"
+                                    className="w-full py-4 bg-white border-2 border-red-50 text-red-500 hover:bg-red-50 hover:border-red-100 font-black rounded-2xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
                                 >
-                                    {isConnecting ? (
-                                        <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                    ) : (
-                                        <>
-                                            <span className="text-2xl group-hover:scale-125 transition-transform duration-300">🔗</span>
-                                            <span className="text-lg uppercase whitespace-nowrap">Step 1: Start Connection</span>
-                                        </>
-                                    )}
+                                    {isConnecting ? <div className="w-5 h-5 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin"></div> : <span>⚠️ Disconnect Facebook Page</span>}
                                 </button>
-                            </div>
+                            </>
+                        ) : (
+                            <button
+                                disabled={isConnecting}
+                                onClick={handleFbLogin}
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-[40px] shadow-xl shadow-blue-600/30 flex items-center justify-center gap-4 transition-all group active:scale-95 disabled:opacity-70 disabled:grayscale"
+                            >
+                                {isConnecting ? (
+                                    <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                ) : (
+                                    <>
+                                        <span className="text-2xl group-hover:scale-125 transition-transform duration-300">🔗</span>
+                                        <span className="text-lg">Connect Facebook Page</span>
+                                    </>
+                                )}
+                            </button>
                         )}
                     </div>
 
@@ -305,27 +295,42 @@ export default function Integrations() {
                                         ))
                                     ) : (
                                         <div className="p-10 text-center">
-                                            <div className="text-4xl mb-4 text-grayscale uppercase font-black opacity-20 tracking-tighter">Empty</div>
-                                            <div className="font-black text-gray-800 text-xl tracking-tight">No Pages Found</div>
-                                            <p className="text-sm text-gray-500 mt-4 leading-relaxed font-medium">
-                                                Facebook didn't send any pages to us. This happens if you didn't check the boxes for your pages in the previous step.
+                                            <div className="text-4xl mb-4 grayscale opacity-30">📋</div>
+                                            <div className="font-black text-gray-800 text-xl tracking-tight">No Business Pages Found</div>
+                                            <p className="text-sm text-gray-500 mt-4 leading-relaxed font-medium px-4">
+                                                We couldn't detect any Facebook Pages. To fix this, make sure:
                                             </p>
                                             
-                                            <div className="mt-10 flex flex-col gap-4">
+                                            <div className="mt-6 space-y-3 text-left max-w-[280px] mx-auto">
+                                                <div className="flex gap-3 items-center">
+                                                    <div className="w-5 h-5 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-[10px] font-black">✓</div>
+                                                    <span className="text-xs text-gray-600 font-bold">You are an Admin of a Business Page</span>
+                                                </div>
+                                                <div className="flex gap-3 items-center">
+                                                    <div className="w-5 h-5 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-[10px] font-black">✓</div>
+                                                    <span className="text-xs text-gray-600 font-bold">The page is NOT a personal profile</span>
+                                                </div>
+                                                <div className="flex gap-3 items-center">
+                                                    <div className="w-5 h-5 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-[10px] font-black">✓</div>
+                                                    <span className="text-xs text-gray-600 font-bold">You checked the box in the popup</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-10 pt-8 border-t border-gray-100 flex flex-col gap-4">
                                                 <button
                                                     onClick={handleFbLogin}
                                                     className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-lg shadow-blue-600/30 transition-all active:scale-95 flex items-center justify-center gap-3"
                                                 >
-                                                    <span>🔄</span> Re-Select Pages
+                                                    <span>🔄</span> Refresh & Choose Pages
                                                 </button>
                                                 
-                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                                                    Make sure to check the box for your farm page in the popup
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-normal">
+                                                    Check all boxes in the Facebook popup <br/> to ensure your pages appear here.
                                                 </p>
                                             </div>
                                         </div>
                                     )}
- toxicology                                </div>
+                                </div>
                                 <div className="p-8 bg-gray-50 flex gap-4">
                                     <button
                                         onClick={() => setShowPageSelector(false)}
