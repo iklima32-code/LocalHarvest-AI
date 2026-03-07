@@ -292,7 +292,12 @@ export default function SettingsPage() {
             if (response.authResponse) {
                 const userAccessToken = response.authResponse.accessToken;
                 console.log("FB granted scopes:", response.authResponse.grantedScopes);
-                console.log("FB user access token received, length:", userAccessToken?.length);
+
+                // Check permissions explicitly
+                window.FB.api('/me/permissions', { access_token: userAccessToken }, (permRes: any) => {
+                    console.log("FB Permissions Debug:", JSON.stringify(permRes));
+                });
+
                 fetchPages(userAccessToken);
             } else {
                 setIsConnecting(false);
@@ -301,7 +306,7 @@ export default function SettingsPage() {
                 }
             }
         }, {
-            scope: 'pages_manage_posts,pages_read_engagement,pages_show_list',
+            scope: 'public_profile,email,pages_manage_posts,pages_read_engagement,pages_show_list',
             auth_type: 'rerequest',
             return_scopes: true
         });
@@ -312,7 +317,7 @@ export default function SettingsPage() {
         console.log("Fetching pages with direct Graph API call...");
         console.log("User access token (first 20 chars):", userAccessToken?.substring(0, 20) + "...");
         try {
-            const graphUrl = `https://graph.facebook.com/v22.0/me/accounts?access_token=${encodeURIComponent(userAccessToken)}&fields=id,name,access_token,category`;
+            const graphUrl = `https://graph.facebook.com/v22.0/me/accounts?access_token=${encodeURIComponent(userAccessToken)}&fields=id,name,access_token,category&debug=all`;
             console.log("Graph API URL:", graphUrl.replace(userAccessToken, "TOKEN_HIDDEN"));
 
             const res = await fetch(graphUrl);
