@@ -17,6 +17,7 @@ export default function Integrations() {
     const [isConnecting, setIsConnecting] = useState(false);
     const [fbPages, setFbPages] = useState<any[]>([]);
     const [showPageSelector, setShowPageSelector] = useState(false);
+    const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
     useEffect(() => {
         const fetchProfile = async () => {
@@ -125,7 +126,7 @@ export default function Integrations() {
     };
 
     const disconnectFb = async () => {
-        if (!confirm("Are you sure you want to disconnect your Facebook Page?")) return;
+        setShowDisconnectConfirm(false); // Close modal first
         setIsConnecting(true);
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -231,7 +232,7 @@ export default function Integrations() {
 
                         {profile?.fb_page_id ? (
                             <button
-                                onClick={disconnectFb}
+                                onClick={() => setShowDisconnectConfirm(true)}
                                 disabled={isConnecting}
                                 className="w-full py-4 bg-white border-2 border-red-50 text-red-500 hover:bg-red-50 hover:border-red-100 font-black rounded-2xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
                             >
@@ -300,6 +301,39 @@ export default function Integrations() {
                                     >
                                         Cancel
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Disconnect Confirmation Modal */}
+                    {showDisconnectConfirm && (
+                        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-5 backdrop-blur-sm">
+                            <div className="bg-white rounded-[40px] max-w-sm w-full overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300">
+                                <div className="p-10 text-center">
+                                    <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center text-4xl mx-auto mb-6 shadow-lg shadow-red-500/10 active:scale-95 transition-transform">
+                                        ⚠️
+                                    </div>
+                                    <h3 className="text-2xl font-black text-gray-800 tracking-tight mb-3">Wait a moment!</h3>
+                                    <p className="text-gray-500 text-sm leading-relaxed mb-8 font-medium">
+                                        Are you sure you want to disconnect <span className="font-bold text-gray-800">{profile?.fb_page_name}</span>? 
+                                        You won't be able to publish harvest updates until you reconnect.
+                                    </p>
+                                    
+                                    <div className="flex flex-col gap-3">
+                                        <button
+                                            onClick={disconnectFb}
+                                            className="w-full py-4 bg-red-500 hover:bg-red-600 text-white font-black rounded-2xl shadow-lg shadow-red-500/30 transition-all active:scale-95"
+                                        >
+                                            Yes, Disconnect
+                                        </button>
+                                        <button
+                                            onClick={() => setShowDisconnectConfirm(false)}
+                                            className="w-full py-4 bg-gray-50 hover:bg-gray-100 text-gray-500 font-bold rounded-2xl transition-all"
+                                        >
+                                            Keep Connected
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
