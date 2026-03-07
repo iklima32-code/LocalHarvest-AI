@@ -75,23 +75,28 @@ export default function Integrations() {
 
     const fetchPages = (userAccessToken: string) => {
         console.log("Fetching pages with access token...");
+        setIsConnecting(true);
         window.FB.api('/me/accounts', { access_token: userAccessToken }, (response: any) => {
             console.log("FB /me/accounts response:", response);
             
             if (response && response.data) {
-                // Remove auto-connect logic to maintain the 2-step flow
+                // We always show the selector for Step 2 as requested, 
+                // but we handle the empty/single/multiple states within it.
                 setFbPages(response.data);
                 setShowPageSelector(true);
-                setIsConnecting(false);
             } else if (response.error) {
                 console.error("FB API Error:", response.error);
                 alert(`Facebook Error: ${response.error.message}`);
-                setIsConnecting(false);
             } else {
-                alert("Could not fetch your Facebook pages. Please ensure you have at least one Business Page.");
-                setIsConnecting(false);
+                setFbPages([]);
+                setShowPageSelector(true);
             }
+            setIsConnecting(false);
         });
+    };
+
+    const handleStep1Auth = () => {
+        handleFbLogin();
     };
 
     const connectPage = async (page: any) => {
@@ -258,7 +263,7 @@ export default function Integrations() {
                                     ) : (
                                         <>
                                             <span className="text-2xl group-hover:scale-125 transition-transform duration-300">🔗</span>
-                                            <span className="text-lg uppercase whitespace-nowrap">Step 1: Connect Facebook</span>
+                                            <span className="text-lg uppercase whitespace-nowrap">Step 1: Start Connection</span>
                                         </>
                                     )}
                                 </button>
@@ -275,8 +280,8 @@ export default function Integrations() {
                                         <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-[10px] font-black tracking-tight">2</span>
                                         <span className="text-[10px] font-black text-blue-600 tracking-widest uppercase">Step 2 of 2</span>
                                     </div>
-                                    <h3 className="text-2xl font-black text-gray-800 tracking-tight">Select Your Farm Page</h3>
-                                    <p className="text-gray-500 text-sm">Which page represents your farm business?</p>
+                                    <h3 className="text-2xl font-black text-gray-800 tracking-tight">Select Farm Business Page</h3>
+                                    <p className="text-gray-500 text-sm">Now, pick the page where we should post your harvests.</p>
                                 </div>
                                 <div className="p-4 max-h-[400px] overflow-y-auto">
                                     {fbPages.length > 0 ? (
@@ -300,31 +305,27 @@ export default function Integrations() {
                                         ))
                                     ) : (
                                         <div className="p-10 text-center">
-                                            <div className="text-4xl mb-4 text-grayscale">😿</div>
+                                            <div className="text-4xl mb-4 text-grayscale uppercase font-black opacity-20 tracking-tighter">Empty</div>
                                             <div className="font-black text-gray-800 text-xl tracking-tight">No Pages Found</div>
                                             <p className="text-sm text-gray-500 mt-4 leading-relaxed font-medium">
-                                                Facebook didn't return any Business Pages. This usually happens if the pages weren't selected during the login popup.
+                                                Facebook didn't send any pages to us. This happens if you didn't check the boxes for your pages in the previous step.
                                             </p>
-                                            <div className="mt-8 p-5 bg-gray-50 rounded-3xl text-left border border-gray-100 flex flex-col gap-4">
-                                                <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">How to reset & fix</div>
-                                                <div className="space-y-4">
-                                                    <div className="flex gap-3">
-                                                        <span className="flex-shrink-0 w-6 h-6 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-xs font-black text-gray-400">1</span>
-                                                        <p className="text-xs text-gray-600 leading-normal">Go to your <a href="https://www.facebook.com/settings?tab=business_integrations" target="_blank" className="text-blue-600 font-bold hover:underline">Facebook Settings</a></p>
-                                                    </div>
-                                                    <div className="flex gap-3">
-                                                        <span className="flex-shrink-0 w-6 h-6 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-xs font-black text-gray-400">2</span>
-                                                        <p className="text-xs text-gray-600 leading-normal">Click <strong>Remove</strong> next to Local Harvest / ROI-MUSE</p>
-                                                    </div>
-                                                    <div className="flex gap-3">
-                                                        <span className="flex-shrink-0 w-6 h-6 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-xs font-black text-gray-400">3</span>
-                                                        <p className="text-xs text-gray-600 leading-normal font-bold text-gray-800">Refresh this page and click Connect again — making sure to select your Page.</p>
-                                                    </div>
-                                                </div>
+                                            
+                                            <div className="mt-10 flex flex-col gap-4">
+                                                <button
+                                                    onClick={handleFbLogin}
+                                                    className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-lg shadow-blue-600/30 transition-all active:scale-95 flex items-center justify-center gap-3"
+                                                >
+                                                    <span>🔄</span> Re-Select Pages
+                                                </button>
+                                                
+                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                                    Make sure to check the box for your farm page in the popup
+                                                </p>
                                             </div>
                                         </div>
                                     )}
-                                </div>
+ toxicology                                </div>
                                 <div className="p-8 bg-gray-50 flex gap-4">
                                     <button
                                         onClick={() => setShowPageSelector(false)}
