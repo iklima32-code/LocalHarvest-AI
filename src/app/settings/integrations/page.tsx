@@ -67,7 +67,7 @@ export default function Integrations() {
                 }
             }
         }, { 
-            scope: 'pages_manage_posts,pages_read_engagement,pages_show_list',
+            scope: 'public_profile,email,pages_manage_posts,pages_read_engagement,pages_show_list',
             auth_type: 'rerequest',
             return_scopes: true 
         });
@@ -286,11 +286,28 @@ export default function Integrations() {
                                         ))
                                     ) : (
                                         <div className="p-10 text-center">
-                                            <div className="text-4xl mb-4">😿</div>
-                                            <div className="font-bold text-gray-800">No Pages Found</div>
-                                            <p className="text-sm text-gray-500 mt-2">
-                                                We couldn't find any Facebook Pages you manage. Make sure you are an admin of at least one Business Page.
+                                            <div className="text-4xl mb-4 text-grayscale">😿</div>
+                                            <div className="font-black text-gray-800 text-xl tracking-tight">No Pages Found</div>
+                                            <p className="text-sm text-gray-500 mt-4 leading-relaxed font-medium">
+                                                Facebook didn't return any Business Pages. This usually happens if the pages weren't selected during the login popup.
                                             </p>
+                                            <div className="mt-8 p-5 bg-gray-50 rounded-3xl text-left border border-gray-100 flex flex-col gap-4">
+                                                <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">How to reset & fix</div>
+                                                <div className="space-y-4">
+                                                    <div className="flex gap-3">
+                                                        <span className="flex-shrink-0 w-6 h-6 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-xs font-black text-gray-400">1</span>
+                                                        <p className="text-xs text-gray-600 leading-normal">Go to your <a href="https://www.facebook.com/settings?tab=business_integrations" target="_blank" className="text-blue-600 font-bold hover:underline">Facebook Settings</a></p>
+                                                    </div>
+                                                    <div className="flex gap-3">
+                                                        <span className="flex-shrink-0 w-6 h-6 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-xs font-black text-gray-400">2</span>
+                                                        <p className="text-xs text-gray-600 leading-normal">Click <strong>Remove</strong> next to Local Harvest / ROI-MUSE</p>
+                                                    </div>
+                                                    <div className="flex gap-3">
+                                                        <span className="flex-shrink-0 w-6 h-6 bg-white border border-gray-200 rounded-lg flex items-center justify-center text-xs font-black text-gray-400">3</span>
+                                                        <p className="text-xs text-gray-600 leading-normal font-bold text-gray-800">Refresh this page and click Connect again — making sure to select your Page.</p>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
