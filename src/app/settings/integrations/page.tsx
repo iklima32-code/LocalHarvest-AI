@@ -165,8 +165,8 @@ export default function Integrations() {
             <Header />
             <div className="max-w-[1200px] mx-auto py-10 px-5">
                 <div className="mb-10">
-                    <h2 className="text-3xl font-bold text-gray-800 tracking-tight">Integrations</h2>
-                    <p className="text-gray-600 mt-2">Connect Local Harvest to your favorite marketing tools and social media platforms.</p>
+                    <h2 className="text-3xl font-black text-gray-800 tracking-tight">Connections & Integrations</h2>
+                    <p className="text-gray-500 mt-2 font-medium">Connect Local Harvest to your favorite marketing tools and social media platforms.</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -266,12 +266,8 @@ export default function Integrations() {
                         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-5 backdrop-blur-sm">
                             <div className="bg-white rounded-[32px] max-w-md w-full overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
                                 <div className="p-8 border-b border-gray-50 flex flex-col gap-2 font-medium">
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-[10px] font-black tracking-tight">2</span>
-                                        <span className="text-[10px] font-black text-blue-600 tracking-widest uppercase">Step 2 of 2</span>
-                                    </div>
-                                    <h3 className="text-2xl font-black text-gray-800 tracking-tight">Select Farm Business Page</h3>
-                                    <p className="text-gray-500 text-sm">Now, pick the page where we should post your harvests.</p>
+                                    <h3 className="text-2xl font-black text-gray-800 tracking-tight">Select Farm Page</h3>
+                                    <p className="text-gray-500 text-sm">Pick the business page to represent your farm.</p>
                                 </div>
                                 <div className="p-4 max-h-[400px] overflow-y-auto">
                                     {fbPages.length > 0 ? (
