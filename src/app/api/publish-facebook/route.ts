@@ -43,11 +43,11 @@ export async function POST(req: Request) {
         // 4. Post to Business Page via Facebook Graph API
         if (postBusiness) {
             try {
-                let fbUrl = `https://graph.facebook.com/v25.0/${pageId}/photos`;
+                let fbUrl = `https://graph.facebook.com/v19.0/${pageId}/photos`;
 
                 // If there's no image URL, we post a feed status instead of a photo
                 if (!imageUrl) {
-                    fbUrl = `https://graph.facebook.com/v25.0/${pageId}/feed`;
+                    fbUrl = `https://graph.facebook.com/v19.0/${pageId}/feed`;
                 }
 
                 const fbRes = await fetch(fbUrl, {
@@ -84,7 +84,10 @@ export async function POST(req: Request) {
 
         // If both failed or business failed when it was requested
         if (postBusiness && !results.business.success) {
-            return NextResponse.json({ error: "Failed to post to Facebook Page", results }, { status: 500 });
+            return NextResponse.json({ 
+                error: results.business.error || "Failed to post to Facebook Page", 
+                results 
+            }, { status: 500 });
         }
 
         return NextResponse.json({ success: true, results });
