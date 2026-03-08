@@ -1232,7 +1232,7 @@ export default function SettingsPage() {
                                                         {fbDebugInfo && (
                                                             <div className="mt-4 p-4 text-left bg-gray-100 rounded-xl overflow-auto text-[10px] font-mono whitespace-pre-wrap max-h-[150px] border border-gray-200 text-gray-700">
                                                                 <div className="font-bold text-red-500 mb-2">Debug Info ({fbDebugInfo.type}):</div>
-                                                                {JSON.stringify(fbDebugInfo.data, null, 2)}
+                                                                {JSON.stringify(fbDebugInfo, null, 2)}
                                                             </div>
                                                         )}
                                                     </div>
