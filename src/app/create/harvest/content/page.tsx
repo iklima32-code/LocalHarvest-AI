@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useHarvest } from "@/context/HarvestContext";
 import { supabase } from "@/lib/supabase";
+import { postService } from "@/lib/posts";
 
 const mockOptions = [
     {
@@ -29,7 +30,8 @@ function HarvestContentInner() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const mode = searchParams.get("mode");
-    const { formData: harvestData, photos, clearHarvest } = useHarvest();
+    const postId = searchParams.get("postId");
+    const { formData: harvestData, photos, setPhotos, clearHarvest } = useHarvest();
     const [options, setOptions] = useState<any[]>(mockOptions);
     const [usage, setUsage] = useState<any>(null);
     const [source, setSource] = useState<string | null>(null);
@@ -64,6 +66,34 @@ function HarvestContentInner() {
         }
     };
 
+    // Persists the selected caption to public.posts.
+    // Non-blocking: logs errors but never interrupts the publish UX.
+    const savePostToDB = async (status: 'draft' | 'published', platform: string) => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            const option = options[selectedOption];
+            await postService.createPost({
+                user_id: user.id,
+                title: [harvestData.variety, harvestData.produceType]
+                    .filter(Boolean).join(' ') || 'Harvest Post',
+                content: option.caption,
+                hashtags: option.hashtags,
+                template_type: harvestData.contentLength || 'short',
+                status,
+                metadata: {
+                    imageUrl: photos.length > 0 ? photos[0] : null,
+                    platform,
+                    produceType: harvestData.produceType,
+                    quantity: harvestData.quantity,
+                    unit: harvestData.unit,
+                },
+            });
+        } catch (err) {
+            console.error('Failed to save post to database:', err);
+        }
+    };
+
     const [profile, setProfile] = useState<any>(null);
 
     useEffect(() => {
@@ -91,9 +121,14 @@ function HarvestContentInner() {
         setError(null);
 
         try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`;
+            }
             const response = await fetch("/api/generate-content", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers,
                 body: JSON.stringify({
                     harvestData,
                     profileSettings: profile ? {
@@ -157,6 +192,43 @@ function HarvestContentInner() {
     };
 
     useEffect(() => {
+        if (mode === "edit") {
+            if (!postId) { setIsGenerating(false); return; }
+            (async () => {
+                try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) { setIsGenerating(false); return; }
+
+                    const { data: post, error } = await supabase
+                        .from("posts")
+                        .select("*")
+                        .eq("id", postId)
+                        .eq("user_id", user.id)
+                        .single();
+
+                    if (error || !post) { setIsGenerating(false); return; }
+
+                    const editOption = {
+                        caption: post.content ?? "",
+                        hashtags: post.hashtags ?? "",
+                        recommended: true,
+                    };
+                    setOptions([editOption]);
+                    setSelectedOption(0);
+                    setEditedCaption(editOption.caption);
+                    setEditedHashtags(editOption.hashtags);
+                    if (post.metadata?.imageUrl) setPhotos([post.metadata.imageUrl]);
+                    setView("preview");
+                    setIsPreviewEditing(true);
+                } catch (err) {
+                    console.error("Edit mode load error:", err);
+                } finally {
+                    setIsGenerating(false);
+                }
+            })();
+            return;
+        }
+
         if (!harvestData || !harvestData.produceType) return;
 
         if (mode === "manual") {
@@ -176,7 +248,7 @@ function HarvestContentInner() {
         }
 
         fetchContent();
-    }, [harvestData, retryCount, mode, profile]);
+    }, [harvestData, retryCount, mode, postId, profile]);
 
     const handleEditStart = (idx: number) => {
         setIsEditing(idx);
@@ -227,8 +299,17 @@ function HarvestContentInner() {
                 window.open("https://www.instagram.com/", '_blank');
             }
 
-            // 3. Complete step
+            // 3. Persist to DB as draft (post not confirmed published — user completes manually)
+            await savePostToDB('draft', scheduleType);
+
+            // 4. Show handoff confirmation
             setIsPublishing(false);
+            setShowSuccessModal({
+                platform: scheduleType === 'personal' ? 'facebook_personal' : 'instagram',
+                message: scheduleType === 'personal'
+                    ? 'Caption copied to clipboard. Paste it into Facebook to complete your post.'
+                    : 'Caption copied to clipboard. Paste it into Instagram to complete your post.'
+            });
             return;
         }
 
@@ -250,6 +331,9 @@ function HarvestContentInner() {
 
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || "Failed to publish to LinkedIn");
+
+                // Persist to DB after confirmed API success
+                await savePostToDB('published', 'linkedin');
 
                 setIsPublishing(false);
                 setShowPublishModal(false);
@@ -285,6 +369,9 @@ function HarvestContentInner() {
                 if (!res.ok) {
                     throw new Error(data.error || data.details || "Failed to publish to Facebook");
                 }
+
+                // Persist to DB after confirmed API success
+                await savePostToDB('published', 'facebook');
 
                 setShowSuccessModal({ platform: "facebook", message: "Your harvest update is now live on your Facebook Business Page!" });
                 setIsPublishing(false);
@@ -614,13 +701,25 @@ function HarvestContentInner() {
                             {isPublishing ? (
                                 <>
                                     <div className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                    Publishing...
+                                    {(scheduleType === 'personal' || scheduleType === 'instagram') ? 'Opening...' : 'Publishing...'}
                                 </>
+                            ) : scheduleType === 'personal' ? (
+                                <><span>📋</span> Copy Caption &amp; Open Facebook</>
+                            ) : scheduleType === 'instagram' ? (
+                                <><span>📋</span> Copy Caption &amp; Open Instagram</>
                             ) : (
-                                <>
-                                    <span>🚀</span> Publish Post
-                                </>
+                                <><span>🚀</span> Publish Post</>
                             )}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                await savePostToDB('draft', 'none');
+                                router.push('/recent');
+                            }}
+                            className="w-full text-center text-gray-400 hover:text-harvest-green font-bold text-sm transition-colors py-3"
+                        >
+                            Save as Draft
                         </button>
                     </div>
                 </div>
@@ -630,6 +729,7 @@ function HarvestContentInner() {
                     <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-5 backdrop-blur-sm" style={{ animation: 'fadeIn 0.3s ease-out' }}>
                         <div className="bg-white rounded-[40px] max-w-sm w-full overflow-hidden shadow-2xl" style={{ animation: 'scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
                             <div className="relative p-10 text-center overflow-hidden">
+                                {showSuccessModal.platform !== 'facebook_personal' && showSuccessModal.platform !== 'instagram' && (
                                 <div className="absolute inset-0 pointer-events-none overflow-hidden">
                                     {[...Array(12)].map((_, i) => (
                                         <div
@@ -647,6 +747,7 @@ function HarvestContentInner() {
                                         />
                                     ))}
                                 </div>
+                                )}
                                 <div className={`w-24 h-24 mx-auto mb-8 rounded-[28px] flex items-center justify-center text-white text-5xl shadow-xl ${showSuccessModal.platform === 'linkedin'
                                         ? 'bg-gradient-to-br from-[#0a66c2] to-[#004182] shadow-[#0a66c2]/30'
                                         : showSuccessModal.platform === 'facebook'
@@ -666,7 +767,7 @@ function HarvestContentInner() {
                                     animation: 'ringPulse 2s ease-in-out infinite'
                                 }} />
                                 <h3 className="text-2xl font-black text-gray-900 tracking-tight mb-2" style={{ animation: 'slideUp 0.5s ease-out 0.3s both' }}>
-                                    Published Successfully! 🎉
+                                    {(showSuccessModal.platform === 'facebook_personal' || showSuccessModal.platform === 'instagram') ? 'Ready to Share! ✓' : 'Published Successfully! 🎉'}
                                 </h3>
                                 <p className="text-gray-500 text-sm leading-relaxed mb-8" style={{ animation: 'slideUp 0.5s ease-out 0.4s both' }}>
                                     {showSuccessModal.message}
@@ -682,7 +783,7 @@ function HarvestContentInner() {
                                                     : 'bg-[#006633] hover:bg-[#004d26] shadow-green-900/30'
                                             }`}
                                     >
-                                        Awesome!
+                                        {(showSuccessModal.platform === 'facebook_personal' || showSuccessModal.platform === 'instagram') ? 'Got it' : 'Awesome!'}
                                     </button>
                                     <button
                                         type="button"
@@ -891,6 +992,16 @@ function HarvestContentInner() {
                                 className="w-full text-center text-gray-500 hover:text-harvest-green font-bold text-sm transition-colors py-4"
                             >
                                 🔄 Didn't like these? Regenerate Options
+                            </button>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    await savePostToDB('draft', 'none');
+                                    router.push('/recent');
+                                }}
+                                className="w-full text-center text-gray-400 hover:text-harvest-green font-bold text-sm transition-colors py-2"
+                            >
+                                Save as Draft
                             </button>
                         </div>
                     </div>
