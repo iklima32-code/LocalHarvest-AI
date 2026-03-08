@@ -1,22 +1,21 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { decryptToken } from "@/lib/encryption";
 
 export async function POST(req: Request) {
     try {
-        const { caption, imageUrl, postBusiness, postPersonal } = await req.json();
+        const { caption, imageUrl, postBusiness, postPersonal, userId } = await req.json();
 
-        // 1. Get the current user from auth header/token
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        // 1. Get the current user ID
+        if (!userId) {
             return NextResponse.json({ error: "User not authenticated" }, { status: 401 });
         }
 
         // 2. Fetch integration credentials from user's profile in the database
-        const { data: profile } = await supabase
+        const { data: profile } = await supabaseAdmin
             .from('profiles')
             .select('fb_page_id, fb_page_access_token')
-            .eq('id', user.id)
+            .eq('id', userId)
             .single();
 
         const pageId = profile?.fb_page_id;
