@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { decryptToken } from "@/lib/encryption";
 
 export async function POST(req: Request) {
+const supabaseAdmin = getSupabaseAdmin();
     try {
         const { caption, imageUrl, postBusiness, postPersonal, userId } = await req.json();
 
