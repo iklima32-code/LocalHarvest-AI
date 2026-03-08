@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encryptToken } from "@/lib/encryption";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET(req: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
         // 3. Encrypt and store in database using the userId from state
         const encryptedToken = encryptToken(tokenData.access_token);
 
-        const { error: updateError } = await supabaseAdmin
+        const { error: updateError } = await getSupabaseAdmin()
             .from("profiles")
             .update({
                 linkedin_access_token: encryptedToken,
