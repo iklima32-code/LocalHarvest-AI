@@ -64,6 +64,7 @@ export default function SettingsPage() {
     const [fbPages, setFbPages] = useState<any[]>([]);
     const [showPageSelector, setShowPageSelector] = useState(false);
     const [fbDebugInfo, setFbDebugInfo] = useState<any>(null);
+    const [fbUserAccessToken, setFbUserAccessToken] = useState<string | null>(null);
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
     const [showLinkedInDisconnectConfirm, setShowLinkedInDisconnectConfirm] = useState(false);
 
@@ -317,6 +318,7 @@ export default function SettingsPage() {
     const fetchPages = async (userAccessToken: string) => {
         setIsConnecting(true);
         setFbDebugInfo(null);
+        setFbUserAccessToken(userAccessToken);
         console.log("Fetching pages with direct Graph API call...");
         try {
             const timestamp = new Date().getTime();
@@ -370,7 +372,8 @@ export default function SettingsPage() {
                 body: JSON.stringify({
                     pageId: page.id,
                     pageName: page.name,
-                    pageAccessToken: page.access_token
+                    pageAccessToken: page.access_token,
+                    userAccessToken: fbUserAccessToken
                 })
             });
 
