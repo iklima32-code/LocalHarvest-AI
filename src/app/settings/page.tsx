@@ -307,7 +307,7 @@ export default function SettingsPage() {
                 }
             }
         }, {
-            scope: 'public_profile,pages_manage_posts,pages_read_engagement,pages_show_list',
+            scope: 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata,business_management',
             auth_type: 'rerequest',
             return_scopes: true
         });
