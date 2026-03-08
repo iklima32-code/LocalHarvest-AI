@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { decryptToken } from "@/lib/encryption";
 
 export async function POST(req: Request) {
@@ -12,7 +12,7 @@ export async function POST(req: Request) {
         }
 
         // 2. Fetch integration credentials from user's profile in the database
-        const { data: profile } = await supabaseAdmin
+        const { data: profile } = await getSupabaseAdmin()
             .from('profiles')
             .select('fb_page_id, fb_page_access_token')
             .eq('id', userId)
