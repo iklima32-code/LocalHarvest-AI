@@ -7,26 +7,75 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
 
 export async function POST(req: Request) {
     try {
-        const { harvestData } = await req.json();
+        const { harvestData, mediaType, profileSettings } = await req.json();
 
         if (!harvestData || !harvestData.produceType) {
             return NextResponse.json({ error: "Missing harvest data" }, { status: 400 });
         }
 
-        const prompt = `You are an expert at creating descriptive image generation prompts for DALL-E/Midjourney.
-        Based on this harvest data, create a single, detailed, photorealistic prompt for an image of the harvest.
-        
+        const isVideo = mediaType === "video";
+
+        const farmName    = profileSettings?.farmName    || null;
+        const farmType    = profileSettings?.farmType    || null;
+        const location    = profileSettings?.autoLocation && profileSettings?.location ? profileSettings.location : null;
+        const brandVoice  = profileSettings?.brandVoice  || "Friendly & Casual";
+
+        // Map brand voice to a visual/cinematic aesthetic for the prompt
+        const brandVoiceVisual: Record<string, string> = {
+            "Friendly & Casual":   "warm, authentic, approachable — natural imperfections welcome, feels real and handcrafted",
+            "Professional":        "clean, polished, commercial-grade — precise composition, well-lit, refined",
+            "Storytelling":        "cinematic and emotive — narrative atmosphere, dramatic lighting, evokes connection to the land",
+            "Educational":         "clear, informative, well-composed — subject is the star, great detail and clarity",
+            "Inspirational":       "uplifting and vibrant — bright colors, energy, hopeful mood",
+        };
+        const visualStyle = brandVoiceVisual[brandVoice] || brandVoiceVisual["Friendly & Casual"];
+
+        // Build shared context block
+        const contextBlock = [
+            farmName  && `- Farm Name: ${farmName}`,
+            farmType  && `- Farm Type: ${farmType}`,
+            location  && `- Location: ${location}`,
+        ].filter(Boolean).join("\n        ");
+
+        const prompt = isVideo
+            ? `You are an expert at creating text-to-video prompts for AI video generators.
+        Based on the harvest data and farm context below, create a single cinematic video prompt describing a short farm scene.
+
         Harvest Data:
         - Produce: ${harvestData.produceType}
         - Variety: ${harvestData.variety || "N/A"}
         - Quantity: ${harvestData.quantity || ""} ${harvestData.unit || ""}
         - Context: ${harvestData.notes || "N/A"}
-        
+        ${contextBlock ? `\n        Farm Context:\n        ${contextBlock}` : ""}
+
+        Brand Aesthetic: ${visualStyle}
+
+        Requirements:
+        1. Keep it to 1-2 sentences (under 60 words).
+        2. Describe motion, action, and atmosphere (e.g., "A farmer's hands gently picking ripe tomatoes, golden morning light, dew on the leaves, slow pan").
+        3. Reflect the brand aesthetic naturally — do not name the style explicitly.
+        ${farmName ? `4. You may reference "${farmName}" subtly if it fits naturally.` : ""}
+        ${location ? `5. Incorporate the ${location} landscape/environment if relevant.` : ""}
+        Return ONLY the prompt text, no commentary.`
+            : `You are an expert at creating descriptive image generation prompts for DALL-E/Midjourney.
+        Based on the harvest data and farm context below, create a single detailed photorealistic prompt for an image of the harvest.
+
+        Harvest Data:
+        - Produce: ${harvestData.produceType}
+        - Variety: ${harvestData.variety || "N/A"}
+        - Quantity: ${harvestData.quantity || ""} ${harvestData.unit || ""}
+        - Context: ${harvestData.notes || "N/A"}
+        ${contextBlock ? `\n        Farm Context:\n        ${contextBlock}` : ""}
+
+        Brand Aesthetic: ${visualStyle}
+
         Requirements:
         1. Keep it to 1-2 descriptive sentences.
-        2. Focus on natural lighting, textures, and authenticity.
-        3. Do NOT include technical parameters like --ar or --v.
-        4. Return ONLY the prompt text.`;
+        2. Reflect the brand aesthetic naturally in lighting, composition, and mood — do not name the style explicitly.
+        ${farmName ? `3. You may reference "${farmName}" subtly in the scene if it fits naturally.` : ""}
+        ${location ? `4. Incorporate the ${location} setting/environment if relevant.` : ""}
+        5. Do NOT include technical parameters like --ar or --v.
+        Return ONLY the prompt text, no commentary.`;
 
         // TIERED MODELS - Cycle through available Gemini models first
         const modelsToTry = [
@@ -85,8 +134,12 @@ export async function POST(req: Request) {
         const type = harvestData.produceType;
         const varietyStr = harvestData.variety ? `${harvestData.variety} ` : "";
         const quantityStr = harvestData.quantity ? `${harvestData.quantity} ${harvestData.unit} of ` : "A bountiful harvest of ";
+        const locationStr = location ? ` at a farm in ${location}` : "";
+        const farmStr = farmName ? ` at ${farmName}` : locationStr;
 
-        const fallbackPrompt = `A high-resolution, photorealistic close-up of ${quantityStr}${varietyStr}${type}, freshly harvested and resting in a rustic wooden crate, illuminated by soft morning sunlight with natural morning dew and authentic textures.`;
+        const fallbackPrompt = isVideo
+            ? `A farmer's hands carefully harvesting fresh ${varietyStr}${type}${farmStr}, warm golden morning light, dew on the leaves, slow cinematic pan.`
+            : `A high-resolution, photorealistic close-up of ${quantityStr}${varietyStr}${type}, freshly harvested and resting in a rustic wooden crate${farmStr}, illuminated by soft morning sunlight with natural morning dew and authentic textures.`;
 
         return NextResponse.json({
             prompt: fallbackPrompt,

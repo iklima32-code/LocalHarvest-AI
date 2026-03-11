@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
     try {
-        const { caption, imageUrl, postBusiness, postPersonal } = await req.json();
+        const { caption, imageUrl, videoUrl, postBusiness, postPersonal } = await req.json();
 
         // 1. Gather Facebook API Credentials from environment variables
         const pageId = process.env.FACEBOOK_PAGE_ID;
@@ -27,11 +27,32 @@ export async function POST(req: Request) {
         // 2. Post to Business Page via Facebook Graph API
         if (postBusiness) {
             try {
-                let fbUrl = `https://graph.facebook.com/v19.0/${pageId}/photos`;
+                let fbUrl: string;
+                let fbBody: Record<string, string>;
 
-                // If there's no image URL, we post a feed status instead of a photo
-                if (!imageUrl) {
+                if (videoUrl) {
+                    // Video post: use /videos endpoint with file_url
+                    fbUrl = `https://graph.facebook.com/v19.0/${pageId}/videos`;
+                    fbBody = {
+                        access_token: pageAccessToken,
+                        description: caption,
+                        file_url: videoUrl,
+                    };
+                } else if (imageUrl) {
+                    // Photo post: use /photos endpoint with url
+                    fbUrl = `https://graph.facebook.com/v19.0/${pageId}/photos`;
+                    fbBody = {
+                        access_token: pageAccessToken,
+                        message: caption,
+                        url: imageUrl,
+                    };
+                } else {
+                    // Text-only post: use /feed endpoint
                     fbUrl = `https://graph.facebook.com/v19.0/${pageId}/feed`;
+                    fbBody = {
+                        access_token: pageAccessToken,
+                        message: caption,
+                    };
                 }
 
                 const fbRes = await fetch(fbUrl, {
@@ -39,11 +60,7 @@ export async function POST(req: Request) {
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        access_token: pageAccessToken,
-                        message: caption,
-                        ...(imageUrl && { url: imageUrl }) // Attach image URL if available
-                    })
+                    body: JSON.stringify(fbBody)
                 });
 
                 const fbData = await fbRes.json();

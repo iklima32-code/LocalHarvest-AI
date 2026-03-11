@@ -29,7 +29,7 @@ function HarvestContentInner() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const mode = searchParams.get("mode");
-    const { formData: harvestData, photos, clearHarvest } = useHarvest();
+    const { formData: harvestData, photos, videos, clearHarvest } = useHarvest();
     const [options, setOptions] = useState<any[]>(mockOptions);
     const [usage, setUsage] = useState<any>(null);
     const [source, setSource] = useState<string | null>(null);
@@ -205,6 +205,7 @@ function HarvestContentInner() {
         const hashtags = options[selectedOption].hashtags;
         const captionToPost = `${caption}\n\n${hashtags}`;
         const photoToPost = photos.length > 0 ? photos[0] : null;
+        const videoToPost = videos.length > 0 ? videos[0] : null;
 
         if (scheduleType === "personal" || scheduleType === "instagram") {
             setIsPublishing(true);
@@ -244,6 +245,7 @@ function HarvestContentInner() {
                     body: JSON.stringify({
                         caption: captionToPost,
                         imageUrl: photoToPost,
+                        videoUrl: videoToPost,
                         userId: user.id,
                     }),
                 });
@@ -281,6 +283,7 @@ function HarvestContentInner() {
                 body: JSON.stringify({
                     caption: captionToPost,
                     imageUrl: photoToPost,
+                    videoUrl: videoToPost,
                     postBusiness,
                     postPersonal
                 })
@@ -475,11 +478,15 @@ function HarvestContentInner() {
                                     </>
                                 )}
 
-                                {photos.length > 0 && (
+                                {photos.length > 0 ? (
                                     <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-inner bg-gray-50 aspect-square">
                                         <img src={photos[0]} alt="Harvest" className="w-full h-full object-cover" />
                                     </div>
-                                )}
+                                ) : videos.length > 0 ? (
+                                    <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-inner bg-gray-900 aspect-video">
+                                        <video src={videos[0]} controls className="w-full h-full object-contain" />
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
 
@@ -615,12 +622,20 @@ function HarvestContentInner() {
                                 </div>
                             )}
 
-                            {/* Photos Strip */}
-                            {photos.length > 0 && (
+                            {/* Media Strip */}
+                            {(photos.length > 0 || videos.length > 0) && (
                                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide md:max-w-[300px]">
                                     {photos.map((url, i) => (
-                                        <div key={i} className="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border-2 border-white shadow-md">
+                                        <div key={`p${i}`} className="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border-2 border-white shadow-md">
                                             <img src={url} alt={`Harvest ${i + 1}`} className="w-full h-full object-cover" />
+                                        </div>
+                                    ))}
+                                    {videos.map((url, i) => (
+                                        <div key={`v${i}`} className="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border-2 border-harvest-green shadow-md bg-gray-900 relative">
+                                            <video src={url} className="w-full h-full object-cover" muted />
+                                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                <span className="text-white text-xl drop-shadow">▶</span>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>

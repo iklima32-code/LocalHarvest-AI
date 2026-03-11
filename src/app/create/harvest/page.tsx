@@ -10,7 +10,7 @@ import PhotoManager from "@/components/PhotoManager";
 
 export default function HarvestWorkflow() {
     const router = useRouter();
-    const { formData, setFormData, photos, setPhotos } = useHarvest();
+    const { formData, setFormData, photos, setPhotos, videos, setVideos } = useHarvest();
 
     const [errors, setErrors] = useState({
         produceType: false,
@@ -29,6 +29,10 @@ export default function HarvestWorkflow() {
 
     const removePhoto = (index: number) => {
         setPhotos((prev) => prev.filter((_, i) => i !== index));
+    };
+
+    const removeVideo = (index: number) => {
+        setVideos((prev) => prev.filter((_, i) => i !== index));
     };
 
     return (
@@ -169,26 +173,55 @@ export default function HarvestWorkflow() {
                                         setPhotos([...photos, url]);
                                     }
                                 }}
+                                selectedVideos={videos}
+                                onSelectVideo={(url) => {
+                                    if (videos.includes(url)) {
+                                        setVideos(videos.filter(v => v !== url));
+                                    } else {
+                                        setVideos([url]); // max 1 video per post
+                                    }
+                                }}
                             />
 
-                            {/* Selected Photos Preview */}
-                            {photos.length > 0 && (
-                                <div className="p-8 bg-white border-2 border-harvest-green/10 rounded-2xl">
-                                    <h5 className="font-bold text-sm text-gray-400 uppercase tracking-widest mb-6">Selected for Harvest <span className="text-harvest-green">({photos.length}/4)</span></h5>
-                                    <div className="grid grid-cols-4 gap-4">
-                                        {photos.map((photo, i) => (
-                                            <div key={i} className="aspect-square bg-gray-100 rounded-xl relative overflow-hidden group border-2 border-transparent hover:border-red-400 transition-all">
-                                                <img src={photo} alt={`Selected ${i}`} className="w-full h-full object-cover" />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => removePhoto(i)}
-                                                    className="absolute inset-0 bg-red-500/0 hover:bg-red-500/40 text-white flex items-center justify-center opacity-0 hover:opacity-100 transition-all"
-                                                >
-                                                    <span className="bg-white text-red-500 w-8 h-8 rounded-full flex items-center justify-center font-bold shadow-lg">✕</span>
-                                                </button>
+                            {/* Selected Media Preview */}
+                            {(photos.length > 0 || videos.length > 0) && (
+                                <div className="p-8 bg-white border-2 border-harvest-green/10 rounded-2xl space-y-6">
+                                    {photos.length > 0 && (
+                                        <>
+                                            <h5 className="font-bold text-sm text-gray-400 uppercase tracking-widest">Selected Photos <span className="text-harvest-green">({photos.length}/4)</span></h5>
+                                            <div className="grid grid-cols-4 gap-4">
+                                                {photos.map((photo, i) => (
+                                                    <div key={i} className="aspect-square bg-gray-100 rounded-xl relative overflow-hidden group border-2 border-transparent hover:border-red-400 transition-all">
+                                                        <img src={photo} alt={`Selected ${i}`} className="w-full h-full object-cover" />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removePhoto(i)}
+                                                            className="absolute inset-0 bg-red-500/0 hover:bg-red-500/40 text-white flex items-center justify-center opacity-0 hover:opacity-100 transition-all"
+                                                        >
+                                                            <span className="bg-white text-red-500 w-8 h-8 rounded-full flex items-center justify-center font-bold shadow-lg">✕</span>
+                                                        </button>
+                                                    </div>
+                                                ))}
                                             </div>
-                                        ))}
-                                    </div>
+                                        </>
+                                    )}
+                                    {videos.length > 0 && (
+                                        <>
+                                            <h5 className="font-bold text-sm text-gray-400 uppercase tracking-widest">Selected Video <span className="text-harvest-green">(1/1)</span></h5>
+                                            {videos.map((video, i) => (
+                                                <div key={i} className="relative rounded-xl overflow-hidden bg-gray-900 aspect-video border-2 border-harvest-green/30 group">
+                                                    <video src={video} controls className="w-full h-full object-contain" />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeVideo(i)}
+                                                        className="absolute top-2 right-2 bg-red-500 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold shadow-lg hover:bg-red-600 transition-all opacity-0 group-hover:opacity-100"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </>
+                                    )}
                                 </div>
                             )}
 

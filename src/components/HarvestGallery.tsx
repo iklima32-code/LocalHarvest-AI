@@ -14,12 +14,14 @@ interface HarvestGalleryProps {
     onSelect?: (url: string) => void;
     selectedPhotos?: string[];
     maxSelection?: number;
+    mediaType?: "photo" | "video";
 }
 
 export default function HarvestGallery({
     onSelect,
     selectedPhotos = [],
-    maxSelection = 4
+    maxSelection = 4,
+    mediaType = "photo"
 }: HarvestGalleryProps) {
     const [galleryPhotos, setGalleryPhotos] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
@@ -160,7 +162,20 @@ export default function HarvestGallery({
         } catch { return false; }
     };
 
+    const isVideoFile = (url: string) => {
+        try {
+            const path = new URL(url).pathname;
+            const fileName = path.split('/').pop() || "";
+            return fileName.startsWith('vid-');
+        } catch { return false; }
+    };
+
     const filteredPhotos = galleryPhotos.filter(url => {
+        // First separate by media type
+        if (mediaType === "video") return isVideoFile(url);
+        if (isVideoFile(url)) return false; // hide videos from photo gallery
+
+        // Then apply photo-specific filters
         if (filter === "all") return true;
         const isAi = isAiPhoto(url);
         return filter === "ai" ? isAi : !isAi;
@@ -172,13 +187,15 @@ export default function HarvestGallery({
             <div className="flex flex-col gap-4">
                 <div className="bg-white border border-gray-100 rounded-2xl p-6 flex flex-wrap justify-between items-center gap-6 shadow-sm">
                     <div className="flex items-center gap-6">
-                        <div className="text-gray-500 font-bold text-sm uppercase tracking-wider">Filter:</div>
+                        {mediaType === "photo" && <div className="text-gray-500 font-bold text-sm uppercase tracking-wider">Filter:</div>}
                         <div className="flex gap-6">
-                            {[
+                            {(mediaType === "photo" ? [
                                 { id: "all", label: "All" },
                                 { id: "user", label: "User" },
                                 { id: "ai", label: "AI" }
-                            ].map((opt) => (
+                            ] : [
+                                { id: "all", label: "My Videos" }
+                            ]).map((opt) => (
                                 <label key={opt.id} className="flex items-center gap-3 cursor-pointer group">
                                     <div className={`w-5 h-5 rounded-full border-2 transition-all flex items-center justify-center ${filter === opt.id ? 'border-green-600' : 'border-gray-200 group-hover:border-green-300'}`}>
                                         {filter === opt.id && <div className="w-2.5 h-2.5 rounded-full bg-green-600"></div>}
@@ -225,7 +242,23 @@ export default function HarvestGallery({
                                             } ${selectedForDeletion.includes(url) ? 'ring-4 ring-red-500/20 opacity-80' : ''} relative`}
                                         onClick={() => onSelect?.(url)}
                                     >
-                                        <img src={url} alt="Gallery" className="w-full h-full object-cover" />
+                                        {isVideoFile(url) ? (
+                                            <>
+                                                <video
+                                                    src={url}
+                                                    className="w-full h-full object-cover bg-gray-900"
+                                                    muted
+                                                    preload="metadata"
+                                                />
+                                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                    <div className="bg-black/40 rounded-full w-10 h-10 flex items-center justify-center">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <img src={url} alt="Gallery" className="w-full h-full object-cover" />
+                                        )}
 
                                         {/* Selection Indicators */}
                                         {selectedPhotos.includes(url) && (
@@ -278,8 +311,14 @@ export default function HarvestGallery({
                     ) : (
                         <div className="bg-white rounded-[40px] p-20 text-center border-2 border-dashed border-gray-100 animate-in fade-in duration-700">
                             <div className="text-6xl mb-6">🏜️</div>
-                            <h2 className="text-2xl font-black text-gray-300 mb-2 uppercase tracking-widest leading-tight">No Photos Found</h2>
-                            <p className="text-gray-400 font-medium tracking-tight">Try changing your filter or uploading new harvest photos.</p>
+                            <h2 className="text-2xl font-black text-gray-300 mb-2 uppercase tracking-widest leading-tight">
+                                {mediaType === "video" ? "No Videos Found" : "No Photos Found"}
+                            </h2>
+                            <p className="text-gray-400 font-medium tracking-tight">
+                                {mediaType === "video"
+                                    ? "Upload a video using the Upload tab."
+                                    : "Try changing your filter or uploading new harvest photos."}
+                            </p>
                         </div>
                     )}
                 </>

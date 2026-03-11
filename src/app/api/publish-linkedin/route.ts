@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 
 export async function POST(req: Request) {
     try {
-        const { caption, imageUrl, userId } = await req.json();
+        const { caption, imageUrl, videoUrl, userId } = await req.json();
 
         if (!userId) {
             return NextResponse.json({ error: "Missing userId" }, { status: 400 });
@@ -31,8 +31,62 @@ export async function POST(req: Request) {
         let shareMediaCategory = "NONE";
         let media: object[] | undefined;
 
-        // 3. If image present, upload via LinkedIn Assets API first
-        if (imageUrl) {
+        // 3a. If video present, upload via LinkedIn Assets API (video flow)
+        if (videoUrl) {
+            const registerRes = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                body: JSON.stringify({
+                    registerUploadRequest: {
+                        recipes: ["urn:li:digitalmediaRecipe:feedshare-video"],
+                        owner: authorUrn,
+                        serviceRelationships: [
+                            {
+                                relationshipType: "OWNER",
+                                identifier: "urn:li:userGeneratedContent",
+                            },
+                        ],
+                        supportedUploadMechanism: ["SYNCHRONOUS_UPLOAD"],
+                    },
+                }),
+            });
+
+            const registerData = await registerRes.json();
+            const uploadUrl = registerData?.value?.uploadMechanism?.["com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"]?.uploadUrl;
+            const assetUrn = registerData?.value?.asset;
+
+            if (uploadUrl && assetUrn) {
+                const videoRes = await fetch(videoUrl);
+                const contentType = videoRes.headers.get("content-type") || "video/mp4";
+                const videoBuffer = await videoRes.arrayBuffer();
+
+                await fetch(uploadUrl, {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        "Content-Type": contentType,
+                    },
+                    body: videoBuffer,
+                });
+
+                shareMediaCategory = "VIDEO";
+                media = [
+                    {
+                        status: "READY",
+                        description: { text: caption.slice(0, 200) },
+                        media: assetUrn,
+                        title: { text: "Harvest Update" },
+                    },
+                ];
+            }
+        }
+
+        // 3b. If image present (and no video), upload via LinkedIn Assets API (image flow)
+        if (!videoUrl && imageUrl) {
             // Register the image upload
             const registerRes = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
                 method: "POST",

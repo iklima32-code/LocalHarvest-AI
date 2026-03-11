@@ -16,6 +16,8 @@ interface HarvestContextType {
     setFormData: (data: HarvestData) => void;
     photos: string[];
     setPhotos: React.Dispatch<React.SetStateAction<string[]>>;
+    videos: string[];
+    setVideos: React.Dispatch<React.SetStateAction<string[]>>;
     clearHarvest: () => void;
 }
 
@@ -33,14 +35,16 @@ const HarvestContext = createContext<HarvestContextType | undefined>(undefined);
 export function HarvestProvider({ children }: { children: ReactNode }) {
     const [formData, setFormData] = useState<HarvestData>(initialData);
     const [photos, setPhotos] = useState<string[]>([]);
+    const [videos, setVideos] = useState<string[]>([]);
 
     const clearHarvest = () => {
         setFormData(initialData);
         setPhotos([]);
+        setVideos([]);
     };
 
     return (
-        <HarvestContext.Provider value={{ formData, setFormData, photos, setPhotos, clearHarvest }}>
+        <HarvestContext.Provider value={{ formData, setFormData, photos, setPhotos, videos, setVideos, clearHarvest }}>
             {children}
         </HarvestContext.Provider>
     );
