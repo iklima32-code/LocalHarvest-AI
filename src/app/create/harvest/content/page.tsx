@@ -362,6 +362,8 @@ function HarvestContentInner() {
         if (scheduleType === "business") {
             setIsPublishing(true);
             try {
+                const { data: { user } } = await supabase.auth.getUser();
+
                 const res = await fetch("/api/publish-facebook", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -369,7 +371,8 @@ function HarvestContentInner() {
                         caption: captionToPost,
                         imageUrl: photoToPost,
                         postBusiness: true,
-                        postPersonal: false
+                        postPersonal: false,
+                        userId: user?.id
                     })
                 });
 
@@ -407,6 +410,8 @@ function HarvestContentInner() {
         setIsPublishing(true);
 
         try {
+            const { data: { user } } = await supabase.auth.getUser();
+
             const res = await fetch("/api/publish-facebook", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -414,7 +419,8 @@ function HarvestContentInner() {
                     caption: captionToPost,
                     imageUrl: photoToPost,
                     postBusiness,
-                    postPersonal
+                    postPersonal,
+                    userId: user?.id
                 })
             });
 
@@ -764,10 +770,10 @@ function HarvestContentInner() {
                                 </div>
                                 )}
                                 <div className={`w-24 h-24 mx-auto mb-8 rounded-[28px] flex items-center justify-center text-white text-5xl shadow-xl ${showSuccessModal.platform === 'linkedin'
-                                        ? 'bg-gradient-to-br from-[#0a66c2] to-[#004182] shadow-[#0a66c2]/30'
-                                        : showSuccessModal.platform === 'facebook'
-                                            ? 'bg-gradient-to-br from-[#1877f2] to-[#0d47a1] shadow-blue-600/30'
-                                            : 'bg-gradient-to-br from-[#006633] to-[#004d26] shadow-green-900/30'
+                                    ? 'bg-gradient-to-br from-[#0a66c2] to-[#004182] shadow-[#0a66c2]/30'
+                                    : showSuccessModal.platform === 'facebook'
+                                        ? 'bg-gradient-to-br from-[#1877f2] to-[#0d47a1] shadow-blue-600/30'
+                                        : 'bg-gradient-to-br from-[#006633] to-[#004d26] shadow-green-900/30'
                                     }`} style={{ animation: 'bounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both' }}>
                                     {showSuccessModal.platform === 'linkedin' ? (
                                         <span style={{ fontFamily: 'serif', fontWeight: 900 }}>in</span>
@@ -792,10 +798,10 @@ function HarvestContentInner() {
                                         type="button"
                                         onClick={() => setShowSuccessModal(null)}
                                         className={`w-full py-4 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 ${showSuccessModal.platform === 'linkedin'
-                                                ? 'bg-[#0a66c2] hover:bg-[#004182] shadow-[#0a66c2]/30'
-                                                : showSuccessModal.platform === 'facebook'
-                                                    ? 'bg-[#1877f2] hover:bg-[#0d47a1] shadow-blue-600/30'
-                                                    : 'bg-[#006633] hover:bg-[#004d26] shadow-green-900/30'
+                                            ? 'bg-[#0a66c2] hover:bg-[#004182] shadow-[#0a66c2]/30'
+                                            : showSuccessModal.platform === 'facebook'
+                                                ? 'bg-[#1877f2] hover:bg-[#0d47a1] shadow-blue-600/30'
+                                                : 'bg-[#006633] hover:bg-[#004d26] shadow-green-900/30'
                                             }`}
                                     >
                                         {(showSuccessModal.platform === 'facebook_personal' || showSuccessModal.platform === 'instagram') ? 'Got it' : 'Awesome!'}

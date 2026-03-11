@@ -63,6 +63,8 @@ export default function SettingsPage() {
     const [isConnecting, setIsConnecting] = useState(false);
     const [fbPages, setFbPages] = useState<any[]>([]);
     const [showPageSelector, setShowPageSelector] = useState(false);
+    const [fbDebugInfo, setFbDebugInfo] = useState<any>(null);
+    const [fbUserAccessToken, setFbUserAccessToken] = useState<string | null>(null);
     const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
     const [showLinkedInDisconnectConfirm, setShowLinkedInDisconnectConfirm] = useState(false);
 
@@ -101,7 +103,7 @@ export default function SettingsPage() {
                 appId: '2454032635058947', // ROI-MUSE App ID
                 cookie: true,
                 xfbml: true,
-                version: 'v22.0'
+                version: 'v25.0'
             });
         };
 
@@ -286,11 +288,19 @@ export default function SettingsPage() {
     };
 
     const handleFbLogin = () => {
+        console.log("---- LOCAL HARVEST FB CONNECT VERSION 3 ----");
         setIsConnecting(true);
         window.FB.login((response: any) => {
             console.log("FB Login Response:", response);
             if (response.authResponse) {
                 const userAccessToken = response.authResponse.accessToken;
+                console.log("FB granted scopes:", response.authResponse.grantedScopes);
+
+                // Check permissions explicitly
+                window.FB.api('/me/permissions', { access_token: userAccessToken }, (permRes: any) => {
+                    console.log("FB Permissions Debug:", JSON.stringify(permRes));
+                });
+
                 fetchPages(userAccessToken);
             } else {
                 setIsConnecting(false);
@@ -299,26 +309,52 @@ export default function SettingsPage() {
                 }
             }
         }, {
-            scope: 'pages_manage_posts,pages_read_engagement,pages_show_list',
+            scope: 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata,business_management,read_insights',
             auth_type: 'rerequest',
             return_scopes: true
         });
     };
 
-    const fetchPages = (userAccessToken: string) => {
+    const fetchPages = async (userAccessToken: string) => {
         setIsConnecting(true);
-        window.FB.api('/me/accounts', { access_token: userAccessToken }, (response: any) => {
-            if (response && response.data) {
+        setFbDebugInfo(null);
+        setFbUserAccessToken(userAccessToken);
+        console.log("Fetching pages with direct Graph API call...");
+        try {
+            const timestamp = new Date().getTime();
+            const graphUrl = `https://graph.facebook.com/v25.0/me/accounts?access_token=${encodeURIComponent(userAccessToken)}&fields=id,name,access_token,category&debug=all&_t=${timestamp}`;
+            const permUrl = `https://graph.facebook.com/v25.0/me/permissions?access_token=${encodeURIComponent(userAccessToken)}&_t=${timestamp}`;
+
+            // Fetch permissions first for debugging
+            const permRes = await fetch(permUrl, { cache: "no-store" });
+            const permData = await permRes.json();
+            console.log("Permissions Data:", permData);
+
+            // Fetch pages
+            const res = await fetch(graphUrl, { cache: "no-store" });
+            const response = await res.json();
+
+            if (response.error) {
+                console.error("Facebook Graph API error:", response.error);
+                setFbDebugInfo({ type: "API_ERROR", data: response.error, permissions: permData });
+                alert(`Facebook Error: ${response.error.message}`);
+            } else if (response.data && response.data.length > 0) {
+                console.log(`Found ${response.data.length} page(s)`);
                 setFbPages(response.data);
                 setShowPageSelector(true);
-            } else if (response.error) {
-                alert(`Facebook Error: ${response.error.message}`);
             } else {
+                console.warn("No pages returned. Full response:", JSON.stringify(response));
+                setFbDebugInfo({ type: "EMPTY_ARRAY", data: response, permissions: permData });
                 setFbPages([]);
                 setShowPageSelector(true);
             }
+        } catch (err: any) {
+            console.error("Fetch error:", err);
+            setFbDebugInfo({ type: "NETWORK_ERROR", data: err.message });
+            alert("Failed to fetch Facebook pages: " + err.message);
+        } finally {
             setIsConnecting(false);
-        });
+        }
     };
 
     const connectPage = async (page: any) => {
@@ -336,7 +372,8 @@ export default function SettingsPage() {
                 body: JSON.stringify({
                     pageId: page.id,
                     pageName: page.name,
-                    pageAccessToken: page.access_token
+                    pageAccessToken: page.access_token,
+                    userAccessToken: fbUserAccessToken
                 })
             });
 
@@ -1196,6 +1233,12 @@ export default function SettingsPage() {
                                                         >
                                                             🔄 Refresh & Choose Pages
                                                         </button>
+                                                        {fbDebugInfo && (
+                                                            <div className="mt-4 p-4 text-left bg-gray-100 rounded-xl overflow-auto text-[10px] font-mono whitespace-pre-wrap max-h-[150px] border border-gray-200 text-gray-700">
+                                                                <div className="font-bold text-red-500 mb-2">Debug Info ({fbDebugInfo.type}):</div>
+                                                                {JSON.stringify(fbDebugInfo, null, 2)}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             )}

@@ -1,22 +1,22 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { decryptToken } from "@/lib/encryption";
 
 export async function POST(req: Request) {
+const supabaseAdmin = getSupabaseAdmin();
     try {
-        const { caption, imageUrl, postBusiness, postPersonal } = await req.json();
+        const { caption, imageUrl, postBusiness, postPersonal, userId } = await req.json();
 
-        // 1. Get the current user from auth header/token
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        // 1. Get the current user ID
+        if (!userId) {
             return NextResponse.json({ error: "User not authenticated" }, { status: 401 });
         }
 
         // 2. Fetch integration credentials from user's profile in the database
-        const { data: profile } = await supabase
+        const { data: profile } = await getSupabaseAdmin()
             .from('profiles')
             .select('fb_page_id, fb_page_access_token')
-            .eq('id', user.id)
+            .eq('id', userId)
             .single();
 
         const pageId = profile?.fb_page_id;
@@ -85,7 +85,10 @@ export async function POST(req: Request) {
 
         // If both failed or business failed when it was requested
         if (postBusiness && !results.business.success) {
-            return NextResponse.json({ error: "Failed to post to Facebook Page", results }, { status: 500 });
+            return NextResponse.json({ 
+                error: results.business.error || "Failed to post to Facebook Page", 
+                results 
+            }, { status: 500 });
         }
 
         return NextResponse.json({ success: true, results });
