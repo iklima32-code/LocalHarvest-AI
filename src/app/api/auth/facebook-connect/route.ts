@@ -7,7 +7,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export async function POST(req: Request) {
     try {
-        const { pageId, pageName, pageAccessToken } = await req.json();
+        const { pageId, pageName, pageAccessToken, userAccessToken } = await req.json();
         const authHeader = req.headers.get("Authorization");
 
         if (!authHeader) {
@@ -26,8 +26,48 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // 2. Encrypt the page access token before storing
-        const encryptedToken = encryptToken(pageAccessToken);
+        let finalPageAccessToken = pageAccessToken;
+        let isLongLived = false;
+
+        // 2. Attempt to exchange for a long-lived page token if App Secret is configured
+        const appId = process.env.FACEBOOK_APP_ID;
+        const appSecret = process.env.FACEBOOK_APP_SECRET;
+
+        if (appId && appSecret && userAccessToken) {
+            try {
+                // Step A: Exchange short-lived user token for long-lived user token
+                const exchangeUrl = `https://graph.facebook.com/v25.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${userAccessToken}`;
+                const exchangeRes = await fetch(exchangeUrl);
+                const exchangeData = await exchangeRes.json();
+
+                if (exchangeData.access_token) {
+                    const longLivedUserToken = exchangeData.access_token;
+                    
+                    // Step B: Use long-lived user token to fetch accounts (pages), and find the long-lived page token
+                    const accountsUrl = `https://graph.facebook.com/v25.0/me/accounts?access_token=${longLivedUserToken}`;
+                    const accountsRes = await fetch(accountsUrl);
+                    const accountsData = await accountsRes.json();
+
+                    if (accountsData.data) {
+                        const targetPage = accountsData.data.find((p: any) => p.id === pageId);
+                        if (targetPage && targetPage.access_token) {
+                            finalPageAccessToken = targetPage.access_token;
+                            isLongLived = true;
+                            console.log("Successfully retrieved long-lived Facebook Page token.");
+                        }
+                    }
+                } else {
+                    console.warn("Failed to exchange for long-lived user token:", exchangeData);
+                }
+            } catch (exchangeError) {
+                console.error("Error exchanging Facebook token:", exchangeError);
+            }
+        } else {
+            console.log("FACEBOOK_APP_ID or FACEBOOK_APP_SECRET not configured. Saving short-lived token.");
+        }
+
+        // 3. Encrypt the page access token before storing
+        const encryptedToken = encryptToken(finalPageAccessToken);
 
         // 3. Update the user's profile in Supabase
         const { error: updateError } = await supabase

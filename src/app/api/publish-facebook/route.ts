@@ -13,7 +13,7 @@ const supabaseAdmin = getSupabaseAdmin();
         }
 
         // 2. Fetch integration credentials from user's profile in the database
-        const { data: profile } = await supabaseAdmin
+        const { data: profile } = await getSupabaseAdmin()
             .from('profiles')
             .select('fb_page_id, fb_page_access_token')
             .eq('id', userId)
@@ -85,7 +85,10 @@ const supabaseAdmin = getSupabaseAdmin();
 
         // If both failed or business failed when it was requested
         if (postBusiness && !results.business.success) {
-            return NextResponse.json({ error: "Failed to post to Facebook Page", results }, { status: 500 });
+            return NextResponse.json({ 
+                error: results.business.error || "Failed to post to Facebook Page", 
+                results 
+            }, { status: 500 });
         }
 
         return NextResponse.json({ success: true, results });
