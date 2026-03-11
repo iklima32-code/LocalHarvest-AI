@@ -10,6 +10,7 @@ export interface Post {
     status: 'draft' | 'scheduled' | 'published';
     scheduled_at?: string;
     created_at?: string;
+    metadata?: Record<string, unknown>;
 }
 
 export const postService = {
