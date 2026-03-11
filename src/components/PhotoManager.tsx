@@ -133,9 +133,14 @@ export default function PhotoManager({
         setImageUsage(null);
 
         try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`;
+            }
             const response = await fetch("/api/generate-image", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers,
                 body: JSON.stringify({ prompt: aiPrompt, style: aiStyle }),
             });
 
@@ -329,9 +334,14 @@ export default function PhotoManager({
         setIsGeneratingPrompt(true);
         setImageError(null);
         try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`;
+            }
             const response = await fetch("/api/generate-prompt", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers,
                 body: JSON.stringify({ harvestData, profileSettings }),
             });
 

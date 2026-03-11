@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encryptToken } from "@/lib/encryption";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function GET(req: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -9,9 +9,11 @@ export async function GET(req: NextRequest) {
 
     const code = req.nextUrl.searchParams.get("code");
     const error = req.nextUrl.searchParams.get("error");
+    const userId = req.nextUrl.searchParams.get("state"); // This is the userId we passed in the state
 
-    if (error || !code) {
-        return NextResponse.redirect(`${appUrl}/settings/integrations?linkedin=error`);
+    if (error || !code || !userId) {
+        console.error("LinkedIn callback missing data:", { error, code, userId });
+        return NextResponse.redirect(`${appUrl}/settings?tab=connections&linkedin=error`);
     }
 
     try {
@@ -40,29 +42,27 @@ export async function GET(req: NextRequest) {
         });
 
         const userInfo = await userInfoRes.json();
-        // OpenID sub field contains the person ID; URN format: urn:li:person:{sub}
         const personUrn = `urn:li:person:${userInfo.sub}`;
 
-        // 3. Get the current Supabase user
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-            return NextResponse.redirect(`${appUrl}/settings/integrations?linkedin=error`);
-        }
-
-        // 4. Encrypt and store
+        // 3. Encrypt and store in database using the userId from state
         const encryptedToken = encryptToken(tokenData.access_token);
 
-        await supabase
+        const { error: updateError } = await getSupabaseAdmin()
             .from("profiles")
             .update({
                 linkedin_access_token: encryptedToken,
                 linkedin_person_urn: personUrn,
             })
-            .eq("id", user.id);
+            .eq("id", userId);
 
-        return NextResponse.redirect(`${appUrl}/settings/integrations?linkedin=connected`);
+        if (updateError) {
+            console.error("Failed to update profile with LinkedIn data:", updateError);
+            throw updateError;
+        }
+
+        return NextResponse.redirect(`${appUrl}/settings?tab=connections&linkedin=connected`);
     } catch (err: any) {
         console.error("LinkedIn OAuth callback error:", err);
-        return NextResponse.redirect(`${appUrl}/settings/integrations?linkedin=error`);
+        return NextResponse.redirect(`${appUrl}/settings?tab=connections&linkedin=error`);
     }
 }
