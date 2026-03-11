@@ -3,7 +3,27 @@
 import Header from "@/components/Header";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { postService, DashboardStats } from "@/lib/posts";
 import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
+
+function timeAgo(dateStr: string): string {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days === 1) return 'Yesterday';
+    return `${days}d ago`;
+}
+
+const STATUS_STYLES: Record<string, string> = {
+    published: 'bg-green-100 text-green-700',
+    scheduled: 'bg-blue-100 text-blue-700',
+    draft:     'bg-gray-200 text-gray-500',
+};
 
 export default function Dashboard() {
     return (
@@ -24,38 +44,63 @@ function DashboardContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const isNewUser = searchParams.get('new') === 'true';
+
     const [loading, setLoading] = useState(true);
+    const [dataLoading, setDataLoading] = useState(true);
+
+    const [profile, setProfile] = useState<any>(null);
+    const [stats, setStats] = useState<DashboardStats>({ draft: 0, scheduled: 0, published: 0, total: 0 });
+    const [recentPosts, setRecentPosts] = useState<any[]>([]);
+    const [scheduledPosts, setScheduledPosts] = useState<any[]>([]);
+    const [postsPerDay, setPostsPerDay] = useState<{ day: string; label: string; count: number }[]>([]);
 
     useEffect(() => {
-        const checkOnboarding = async () => {
+        const init = async () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) {
                 router.push("/login");
                 return;
             }
 
-            const { data: profile } = await supabase
+            const { data: profileData } = await supabase
                 .from('profiles')
-                .select('onboarding_completed')
+                .select('onboarding_completed, farm_name, fb_page_id, linkedin_person_urn, farm_logo_url, fb_page_name')
                 .eq('id', user.id)
                 .single();
 
-            if (profile && !profile.onboarding_completed) {
+            if (profileData && !profileData.onboarding_completed) {
                 if (isNewUser) {
-                    // Start dashboard experience first, then redirect after 3s
                     setLoading(false);
-                    setTimeout(() => {
-                        router.push("/onboarding");
-                    }, 3000);
+                    setTimeout(() => router.push("/onboarding"), 3000);
                 } else {
                     router.push("/onboarding");
                 }
-            } else {
-                setLoading(false);
+                return;
+            }
+
+            setProfile(profileData);
+            setLoading(false);
+
+            // Fetch all dashboard data in parallel after auth confirmed
+            try {
+                const [statsData, recent, scheduled, perDay] = await Promise.all([
+                    postService.getDashboardStats(user.id),
+                    postService.getRecentPosts(user.id, 5),
+                    postService.getScheduledPosts(user.id, 3),
+                    postService.getPostsPerDay(user.id, 7),
+                ]);
+                setStats(statsData);
+                setRecentPosts(recent);
+                setScheduledPosts(scheduled);
+                setPostsPerDay(perDay);
+            } catch (err) {
+                console.error('Dashboard data fetch error:', err);
+            } finally {
+                setDataLoading(false);
             }
         };
 
-        checkOnboarding();
+        init();
     }, [router]);
 
     if (loading) {
@@ -69,87 +114,156 @@ function DashboardContent() {
         );
     }
 
+    const maxDayCount = Math.max(...postsPerDay.map(d => d.count), 1);
+    const farmName = profile?.farm_name || 'Your Farm';
+    const isFbConnected = !!profile?.fb_page_id;
+    const isLinkedInConnected = !!profile?.linkedin_person_urn;
+
     return (
         <main>
             <Header />
 
             <div className="max-w-[1200px] mx-auto py-10 px-5">
-                {/* Performance Graph Section */}
-                <div className="card mb-8">
-                    <h3 className="text-xl font-bold mb-5 text-gray-800">📈 This Week&apos;s Performance</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <div className="space-y-5">
-                            {[
-                                { day: "Monday", engagements: 847, width: "85%", color: "bg-harvest-green" },
-                                { day: "Tuesday", engagements: 923, width: "92%", color: "bg-cyan-500" },
-                                { day: "Wednesday", engagements: 1056, width: "100%", color: "bg-green-500" },
-                                { day: "Thursday", engagements: 789, width: "78%", color: "bg-yellow-500" },
-                                { day: "Friday", engagements: 654, width: "65%", color: "bg-red-500" },
-                            ].map((stat) => (
-                                <div key={stat.day}>
-                                    <div className="flex justify-between mb-2">
-                                        <span className="text-sm font-semibold">{stat.day}</span>
-                                        <span className="text-sm text-gray-600 font-medium">{stat.engagements} engagements</span>
-                                    </div>
-                                    <div className="bg-gray-200 h-2 rounded-full overflow-hidden">
-                                        <div className={`${stat.color} h-full transition-all duration-1000`} style={{ width: stat.width }}></div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
 
-                        <div className="bg-harvest-light border-l-4 border-harvest-green p-5 rounded-r-lg">
-                            <h4 className="font-bold text-harvest-green mb-3">📊 Weekly Insights</h4>
-                            <ul className="text-sm text-gray-700 space-y-3 list-disc pl-5 leading-loose">
-                                <li><strong>Best day:</strong> Wednesday with 1,056 engagements</li>
-                                <li><strong>Total reach:</strong> 4,269 people this week</li>
-                                <li><strong>Engagement rate:</strong> 8.7% (↑ 1.2%)</li>
-                                <li><strong>Most popular:</strong> Harvest update posts</li>
-                                <li><strong>Peak time:</strong> 9:00 AM - 10:00 AM</li>
-                            </ul>
-                        </div>
+                {/* Post Activity Stats Row */}
+                <div className="card mb-8">
+                    <div className="flex justify-between items-center mb-5">
+                        <h3 className="text-xl font-bold text-gray-800">📊 Post Activity</h3>
+                        <Link
+                            href="/create/harvest"
+                            className="text-xs bg-harvest-light text-harvest-green px-3 py-1 rounded font-bold hover:bg-harvest-green hover:text-white transition-colors"
+                        >
+                            + New Post
+                        </Link>
                     </div>
-                </div>
-
-                {/* Quick Stats Grid */}
-                <div className="card mb-8">
-                    <h3 className="text-xl font-bold mb-5 text-gray-800">📊 Quick Stats (Last 30 Days)</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                         <div className="text-center p-5 bg-harvest-light rounded-lg">
-                            <div className="text-4xl font-bold text-harvest-green mb-1">24</div>
-                            <div className="text-sm text-gray-600 font-medium">Total Posts</div>
-                            <div className="text-xs text-green-600 mt-2 font-bold">↑ 20% vs last month</div>
+                            <div className="text-4xl font-bold text-harvest-green mb-1">
+                                {dataLoading ? <span className="text-2xl text-gray-300">…</span> : stats.total}
+                            </div>
+                            <div className="text-xs text-gray-500 font-medium">Total Posts</div>
+                        </div>
+                        <div className="text-center p-5 bg-green-50 rounded-lg">
+                            <div className="text-4xl font-bold text-green-600 mb-1">
+                                {dataLoading ? <span className="text-2xl text-gray-300">…</span> : stats.published}
+                            </div>
+                            <div className="text-xs text-gray-500 font-medium">Published</div>
                         </div>
                         <div className="text-center p-5 bg-blue-50 rounded-lg">
-                            <div className="text-4xl font-bold text-blue-600 mb-1">12.4K</div>
-                            <div className="text-sm text-gray-600 font-medium">Total Reach</div>
-                            <div className="text-xs text-green-600 mt-2 font-bold">↑ 35% vs last month</div>
+                            <div className="text-4xl font-bold text-blue-500 mb-1">
+                                {dataLoading ? <span className="text-2xl text-gray-300">…</span> : stats.scheduled}
+                            </div>
+                            <div className="text-xs text-gray-500 font-medium">Scheduled</div>
                         </div>
-                        <div className="text-center p-5 bg-amber-50 rounded-lg">
-                            <div className="text-4xl font-bold text-amber-500 mb-1">8.2%</div>
-                            <div className="text-sm text-gray-600 font-medium">Engagement Rate</div>
-                            <div className="text-xs text-green-600 mt-2 font-bold">↑ 12% vs last month</div>
+                        <div className="text-center p-5 bg-gray-50 rounded-lg">
+                            <div className="text-4xl font-bold text-gray-400 mb-1">
+                                {dataLoading ? <span className="text-2xl text-gray-300">…</span> : stats.draft}
+                            </div>
+                            <div className="text-xs text-gray-500 font-medium">Drafts</div>
                         </div>
                     </div>
                 </div>
 
-                {/* Main Dashboard Content */}
+                {/* Main grid */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+
+                    {/* Left / main column */}
                     <div className="col-span-1 md:col-span-2 space-y-8">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
-                            <div className="bg-gradient-to-br from-harvest-green to-green-700 text-white p-8 rounded-xl shadow-lg">
-                                <div className="text-sm opacity-90 mb-2">Good morning,</div>
-                                <div className="text-3xl font-bold mb-1">Your Farm</div>
-                                <div className="text-xs opacity-80">Ready to create amazing content?</div>
-                            </div>
-                            <div className="bg-gradient-to-br from-harvest-green to-green-700 text-white p-8 rounded-xl shadow-lg">
-                                <div className="text-sm opacity-90 mb-2">Posts Created</div>
-                                <div className="text-4xl font-bold mb-1">24</div>
-                                <div className="text-xs opacity-80">This month</div>
-                            </div>
+
+                        {/* Posts This Week bar chart */}
+                        <div className="card">
+                            <h3 className="text-lg font-bold mb-5 text-gray-800">📅 Posts This Week</h3>
+
+                            {dataLoading ? (
+                                <div className="space-y-4">
+                                    {[...Array(7)].map((_, i) => (
+                                        <div key={i} className="flex items-center gap-3">
+                                            <span className="w-10 text-xs text-gray-200 bg-gray-100 rounded h-3 inline-block"></span>
+                                            <div className="flex-1 bg-gray-100 h-2 rounded-full animate-pulse"></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : postsPerDay.every(d => d.count === 0) ? (
+                                <div className="text-center py-10 text-gray-400">
+                                    <div className="text-4xl mb-3">📝</div>
+                                    <p className="text-sm font-semibold">No posts this week yet.</p>
+                                    <Link
+                                        href="/create/harvest"
+                                        className="text-harvest-green font-bold text-sm hover:underline mt-2 inline-block"
+                                    >
+                                        Create your first post →
+                                    </Link>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {postsPerDay.map((d) => (
+                                        <div key={d.day}>
+                                            <div className="flex justify-between mb-1.5">
+                                                <span className="text-sm font-semibold text-gray-700">{d.label}</span>
+                                                <span className="text-sm text-gray-500 font-medium">
+                                                    {d.count} {d.count === 1 ? 'post' : 'posts'}
+                                                </span>
+                                            </div>
+                                            <div className="bg-gray-100 h-2 rounded-full overflow-hidden">
+                                                <div
+                                                    className="bg-harvest-green h-full rounded-full transition-all duration-700"
+                                                    style={{ width: d.count === 0 ? '0%' : `${Math.max((d.count / maxDayCount) * 100, 4)}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
-                        {/* Content Suggestions */}
+                        {/* Recent Posts */}
+                        <div className="card">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-bold text-gray-800">🕓 Recent Posts</h3>
+                                <Link href="/recent" className="text-xs text-harvest-green font-bold hover:underline">
+                                    View all →
+                                </Link>
+                            </div>
+
+                            {dataLoading ? (
+                                <div className="space-y-3">
+                                    {[...Array(3)].map((_, i) => (
+                                        <div key={i} className="p-4 bg-gray-50 rounded-xl animate-pulse h-16"></div>
+                                    ))}
+                                </div>
+                            ) : recentPosts.length === 0 ? (
+                                <div className="text-center py-10 text-gray-400">
+                                    <div className="text-3xl mb-2">📭</div>
+                                    <p className="text-sm font-semibold">No posts yet.</p>
+                                    <Link href="/create/harvest" className="text-harvest-green font-bold text-sm hover:underline mt-1 inline-block">
+                                        Create your first →
+                                    </Link>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {recentPosts.map((post) => (
+                                        <div
+                                            key={post.id}
+                                            className="p-4 bg-gray-50 rounded-xl border border-gray-100 hover:border-harvest-green/30 transition-all"
+                                        >
+                                            <div className="flex justify-between items-center mb-2 gap-2">
+                                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${STATUS_STYLES[post.status] || 'bg-gray-200 text-gray-500'}`}>
+                                                    {post.status}
+                                                </span>
+                                                <span className="text-[11px] text-gray-400 font-medium shrink-0">
+                                                    {timeAgo(post.created_at)}
+                                                </span>
+                                            </div>
+                                            <p className="text-sm text-gray-700 line-clamp-2 leading-relaxed">
+                                                {post.content}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Content Ideas — static, no data required */}
                         <div className="card">
                             <h3 className="text-lg font-bold mb-4 text-gray-800">💡 Content Ideas for You</h3>
                             <div className="space-y-3">
@@ -159,37 +273,103 @@ function DashboardContent() {
                                     "👨‍🌾 Introduce a team member",
                                     "🌱 Sustainability practices spotlight",
                                 ].map((idea, idx) => (
-                                    <div key={idx} className="p-4 bg-gray-50 rounded-lg text-sm font-medium text-gray-700 hover:bg-harvest-light transition-colors cursor-pointer">
+                                    <Link
+                                        key={idx}
+                                        href="/create/harvest"
+                                        className="block p-4 bg-gray-50 rounded-lg text-sm font-medium text-gray-700 hover:bg-harvest-light transition-colors"
+                                    >
                                         {idea}
-                                    </div>
+                                    </Link>
                                 ))}
                             </div>
                         </div>
                     </div>
 
+                    {/* Right sidebar */}
                     <div className="space-y-8">
-                        {/* Scheduled Posts */}
+
+                        {/* Farm greeting */}
+                        <div className="bg-gradient-to-br from-harvest-green to-green-700 text-white p-6 rounded-xl shadow-lg">
+                            <div className="text-sm opacity-80 mb-1">Welcome back,</div>
+                            <div className="text-2xl font-bold leading-tight">{farmName}</div>
+                            <div className="text-xs opacity-70 mt-1">Ready to grow your audience?</div>
+                        </div>
+
+                        {/* Upcoming Scheduled */}
                         <div className="card">
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="text-lg font-bold text-gray-800">📅 Scheduled</h3>
-                                <button className="text-xs bg-harvest-light text-harvest-green px-3 py-1 rounded font-bold hover:bg-harvest-green hover:text-white transition-colors">
+                                <Link
+                                    href="/create/harvest"
+                                    className="text-xs bg-harvest-light text-harvest-green px-3 py-1 rounded font-bold hover:bg-harvest-green hover:text-white transition-colors"
+                                >
                                     + New
-                                </button>
+                                </Link>
                             </div>
-                            <div className="text-center py-10 text-gray-400">
-                                <div className="text-4xl mb-3">🗓️</div>
-                                <div className="font-semibold text-sm mb-1">No pending posts</div>
-                                <div className="text-xs">Queue some magic!</div>
-                            </div>
+
+                            {dataLoading ? (
+                                <div className="space-y-2">
+                                    {[...Array(2)].map((_, i) => (
+                                        <div key={i} className="bg-gray-100 h-14 rounded-lg animate-pulse"></div>
+                                    ))}
+                                </div>
+                            ) : scheduledPosts.length === 0 ? (
+                                <div className="text-center py-10 text-gray-400">
+                                    <div className="text-4xl mb-3">🗓️</div>
+                                    <div className="font-semibold text-sm mb-1">No pending posts</div>
+                                    <div className="text-xs">Queue some magic!</div>
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {scheduledPosts.map((post) => (
+                                        <div key={post.id} className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                            <p className="text-xs text-blue-600 font-bold mb-1">
+                                                {new Date(post.scheduled_at).toLocaleDateString('en-US', {
+                                                    month: 'short', day: 'numeric',
+                                                    hour: '2-digit', minute: '2-digit',
+                                                })}
+                                            </p>
+                                            <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed">
+                                                {post.content}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
-                        {/* Optimal Time */}
+                        {/* Platform Connections */}
                         <div className="card">
-                            <h3 className="text-lg font-bold mb-4 text-gray-800">⏰ Best Time Today</h3>
-                            <div className="text-center p-6 bg-gradient-to-br from-harvest-green to-green-800 text-white rounded-lg">
-                                <div className="text-sm opacity-80 mb-2">Optimal window</div>
-                                <div className="text-4xl font-bold">9:00 AM</div>
-                                <div className="text-xs opacity-80 mt-2">Reach potential: ~1,200</div>
+                            <h3 className="text-lg font-bold mb-4 text-gray-800">🔗 Connections</h3>
+                            <div className="space-y-3">
+                                <div className={`flex items-center justify-between p-3 rounded-lg border ${isFbConnected ? 'bg-blue-50 border-blue-100' : 'bg-gray-50 border-gray-100'}`}>
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-black text-blue-600 text-lg leading-none">f</span>
+                                        <span className="text-sm font-bold text-gray-700">Facebook</span>
+                                    </div>
+                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${isFbConnected ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-500'}`}>
+                                        {isFbConnected ? '● Connected' : 'Not connected'}
+                                    </span>
+                                </div>
+
+                                <div className={`flex items-center justify-between p-3 rounded-lg border ${isLinkedInConnected ? 'bg-blue-50 border-blue-100' : 'bg-gray-50 border-gray-100'}`}>
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-black text-blue-700 text-lg leading-none" style={{ fontFamily: 'serif' }}>in</span>
+                                        <span className="text-sm font-bold text-gray-700">LinkedIn</span>
+                                    </div>
+                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${isLinkedInConnected ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-500'}`}>
+                                        {isLinkedInConnected ? '● Connected' : 'Not connected'}
+                                    </span>
+                                </div>
+
+                                {(!isFbConnected || !isLinkedInConnected) && (
+                                    <Link
+                                        href="/settings?tab=connections"
+                                        className="block text-center text-xs text-harvest-green font-bold hover:underline pt-1"
+                                    >
+                                        Manage connections →
+                                    </Link>
+                                )}
                             </div>
                         </div>
                     </div>
