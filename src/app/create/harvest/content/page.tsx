@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useHarvest } from "@/context/HarvestContext";
 import { supabase } from "@/lib/supabase";
-import { postService } from "@/lib/posts";
+import { postService, ContentPolicyError, assertContentPolicy } from "@/lib/posts";
 
 const mockOptions = [
     {
@@ -67,16 +67,25 @@ function HarvestContentInner() {
     };
 
     // Persists the selected caption to public.posts.
-    // Non-blocking: logs errors but never interrupts the publish UX.
+    // Phase A content-policy hard-block runs before any DB write.
+    // Other errors are non-blocking: logged but never interrupt the publish UX.
     const savePostToDB = async (status: 'draft' | 'published', platform: string) => {
+        // Evaluate all persisted text fields before touching the DB.
+        const option = options[selectedOption];
+        const title = [harvestData.variety, harvestData.produceType]
+            .filter(Boolean).join(' ') || 'Harvest Post';
+
+        // Hard-block: throws ContentPolicyError if any field contains clearly
+        // disallowed content. Must remain OUTSIDE the try/catch below so the
+        // error propagates to callers instead of being silently swallowed.
+        assertContentPolicy({ title, content: option.caption, hashtags: option.hashtags });
+
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
-            const option = options[selectedOption];
             await postService.createPost({
                 user_id: user.id,
-                title: [harvestData.variety, harvestData.produceType]
-                    .filter(Boolean).join(' ') || 'Harvest Post',
+                title,
                 content: option.caption,
                 hashtags: option.hashtags,
                 template_type: harvestData.contentLength || 'short',
@@ -714,8 +723,14 @@ function HarvestContentInner() {
                         <button
                             type="button"
                             onClick={async () => {
-                                await savePostToDB('draft', 'none');
-                                router.push('/recent');
+                                try {
+                                    await savePostToDB('draft', 'none');
+                                    router.push('/recent');
+                                } catch (err) {
+                                    alert(err instanceof ContentPolicyError
+                                        ? 'This post contains disallowed content and cannot be saved.'
+                                        : 'Failed to save draft. Please try again.');
+                                }
                             }}
                             className="w-full text-center text-gray-400 hover:text-harvest-green font-bold text-sm transition-colors py-3"
                         >
@@ -996,8 +1011,14 @@ function HarvestContentInner() {
                             <button
                                 type="button"
                                 onClick={async () => {
-                                    await savePostToDB('draft', 'none');
-                                    router.push('/recent');
+                                    try {
+                                        await savePostToDB('draft', 'none');
+                                        router.push('/recent');
+                                    } catch (err) {
+                                        alert(err instanceof ContentPolicyError
+                                            ? 'This post contains disallowed content and cannot be saved.'
+                                            : 'Failed to save draft. Please try again.');
+                                    }
                                 }}
                                 className="w-full text-center text-gray-400 hover:text-harvest-green font-bold text-sm transition-colors py-2"
                             >

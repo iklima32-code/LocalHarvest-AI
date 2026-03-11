@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { OpenAI } from "openai";
 import { NextResponse } from "next/server";
 import { cqraRequireAuth } from "@/lib/cqra";
+import { containsDisallowedContent } from "@/lib/content-policy";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
@@ -17,6 +18,15 @@ export async function POST(req: Request) {
 
         if (!prompt) {
             return NextResponse.json({ error: "Missing prompt" }, { status: 400 });
+        }
+
+        // Phase A content-policy hard-block.
+        // Must run before any model invocation or fallback provider call.
+        if (containsDisallowedContent(prompt)) {
+            return NextResponse.json(
+                { error: "Image prompt contains disallowed content and cannot be generated." },
+                { status: 400 }
+            );
         }
 
         console.log(`>>> Starting Image Generation Pipeline for: "${prompt}" [Style: ${style}]`);
