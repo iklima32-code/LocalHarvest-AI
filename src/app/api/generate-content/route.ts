@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { OpenAI } from "openai";
 import { NextResponse } from "next/server";
 import { cqraRequireAuth } from "@/lib/cqra";
+import { containsDisallowedContent } from "@/lib/content-policy";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
@@ -24,6 +25,24 @@ export async function POST(req: Request) {
         const defaultHashtags = profileSettings?.defaultHashtags || "#FarmFresh #LocalFood #OrganicProduce";
         const location = profileSettings?.location || "";
         const farmName = profileSettings?.farmName || "the farm";
+
+        // Phase A content-policy hard-block.
+        // Runs after local variables are initialized; before any model invocation.
+        const inputsToCheck: [string, string][] = [
+            ['produceType', harvestData.produceType],
+            ['variety', harvestData.variety || ''],
+            ['notes', harvestData.notes || ''],
+            ['farmName', farmName],
+            ['location', location],
+        ];
+        for (const [field, value] of inputsToCheck) {
+            if (containsDisallowedContent(value)) {
+                return NextResponse.json(
+                    { error: `Your harvest details contain disallowed language (field: ${field}). Please edit and try again.` },
+                    { status: 400 }
+                );
+            }
+        }
 
         const longCopyInstructions = `
       Recommended Structure (High-Performing Long Copy)

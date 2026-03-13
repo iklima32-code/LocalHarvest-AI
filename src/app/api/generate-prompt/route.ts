@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { OpenAI } from "openai";
 import { NextResponse } from "next/server";
 import { cqraRequireAuth } from "@/lib/cqra";
+import { containsDisallowedContent } from "@/lib/content-policy";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
@@ -43,9 +44,26 @@ export async function POST(req: Request) {
             location  && `- Location: ${location}`,
         ].filter(Boolean).join("\n        ");
 
+        // Phase A content-policy hard-block.
+        // Checks all user-controlled fields before any model invocation.
+        const inputsToCheck: [string, string][] = [
+            ['produceType', harvestData.produceType],
+            ['variety', harvestData.variety || ''],
+            ['notes', harvestData.notes || ''],
+        ];
+        for (const [field, value] of inputsToCheck) {
+            if (containsDisallowedContent(value)) {
+                return NextResponse.json(
+                    { error: `Your harvest details contain disallowed language (field: ${field}). Please edit and try again.` },
+                    { status: 400 }
+                );
+            }
+        }
+
         const prompt = isVideo
             ? `You are an expert at creating text-to-video prompts for AI video generators.
         Based on the harvest data and farm context below, create a single cinematic video prompt describing a short farm scene.
+
 
         Harvest Data:
         - Produce: ${harvestData.produceType}
