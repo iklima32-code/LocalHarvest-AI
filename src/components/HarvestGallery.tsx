@@ -14,12 +14,14 @@ interface HarvestGalleryProps {
     onSelect?: (url: string) => void;
     selectedPhotos?: string[];
     maxSelection?: number;
+    mediaType?: "photo" | "video";
 }
 
 export default function HarvestGallery({
     onSelect,
     selectedPhotos = [],
-    maxSelection = 4
+    maxSelection = 4,
+    mediaType = "photo"
 }: HarvestGalleryProps) {
     const [galleryPhotos, setGalleryPhotos] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
@@ -160,7 +162,20 @@ export default function HarvestGallery({
         } catch { return false; }
     };
 
+    const isVideoFile = (url: string) => {
+        try {
+            const path = new URL(url).pathname;
+            const fileName = path.split('/').pop() || "";
+            return fileName.startsWith('vid-');
+        } catch { return false; }
+    };
+
     const filteredPhotos = galleryPhotos.filter(url => {
+        // First separate by media type
+        if (mediaType === "video") return isVideoFile(url);
+        if (isVideoFile(url)) return false; // hide videos from photo gallery
+
+        // Then apply photo-specific filters
         if (filter === "all") return true;
         const isAi = isAiPhoto(url);
         return filter === "ai" ? isAi : !isAi;
@@ -172,13 +187,15 @@ export default function HarvestGallery({
             <div className="flex flex-col gap-4">
                 <div className="bg-white border border-gray-100 rounded-2xl p-6 flex flex-wrap justify-between items-center gap-6 shadow-sm">
                     <div className="flex items-center gap-6">
-                        <div className="text-gray-500 font-bold text-sm uppercase tracking-wider">Filter:</div>
+                        {mediaType === "photo" && <div className="text-gray-500 font-bold text-sm uppercase tracking-wider">Filter:</div>}
                         <div className="flex gap-6">
-                            {[
+                            {(mediaType === "photo" ? [
                                 { id: "all", label: "All" },
                                 { id: "user", label: "User" },
                                 { id: "ai", label: "AI" }
-                            ].map((opt) => (
+                            ] : [
+                                { id: "all", label: "My Videos" }
+                            ]).map((opt) => (
                                 <label key={opt.id} className="flex items-center gap-3 cursor-pointer group">
                                     <div className={`w-5 h-5 rounded-full border-2 transition-all flex items-center justify-center ${filter === opt.id ? 'border-green-600' : 'border-gray-200 group-hover:border-green-300'}`}>
                                         {filter === opt.id && <div className="w-2.5 h-2.5 rounded-full bg-green-600"></div>}
@@ -192,6 +209,7 @@ export default function HarvestGallery({
 
                     <div className="flex items-center gap-4">
                         <button
+                            type="button"
                             onClick={toggleSelectAll}
                             className="text-xs font-bold text-gray-500 hover:text-green-600 transition-colors uppercase tracking-widest"
                         >
@@ -199,6 +217,7 @@ export default function HarvestGallery({
                         </button>
                         {selectedForDeletion.length > 0 && (
                             <button
+                                type="button"
                                 onClick={() => setShowBulkDeleteModal(true)}
                                 className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-100 transition-all border border-red-100"
                             >
@@ -225,7 +244,23 @@ export default function HarvestGallery({
                                             } ${selectedForDeletion.includes(url) ? 'ring-4 ring-red-500/20 opacity-80' : ''} relative`}
                                         onClick={() => onSelect?.(url)}
                                     >
-                                        <img src={url} alt="Gallery" className="w-full h-full object-cover" />
+                                        {isVideoFile(url) ? (
+                                            <>
+                                                <video
+                                                    src={url}
+                                                    className="w-full h-full object-cover bg-gray-900"
+                                                    muted
+                                                    preload="metadata"
+                                                />
+                                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                    <div className="bg-black/40 rounded-full w-10 h-10 flex items-center justify-center">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <img src={url} alt="Gallery" className="w-full h-full object-cover" />
+                                        )}
 
                                         {/* Selection Indicators */}
                                         {selectedPhotos.includes(url) && (
@@ -236,22 +271,42 @@ export default function HarvestGallery({
                                             </div>
                                         )}
 
-                                        {/* Delete Action Overlay & Checkbox */}
-                                        <div className={`absolute top-3 left-3 z-10 transition-opacity ${selectedForDeletion.includes(url) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                                            <button
-                                                onClick={(e) => toggleSelectionForDeletion(url, e)}
-                                                className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${selectedForDeletion.includes(url) ? 'bg-red-500 border-red-500 shadow-lg text-white' : 'bg-white/80 backdrop-blur-sm border-gray-200 hover:border-red-400'}`}
-                                            >
-                                                {selectedForDeletion.includes(url) ? (
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                                ) : (
-                                                    <div className="w-2 h-2 rounded-full bg-gray-200"></div>
-                                                )}
-                                            </button>
-                                        </div>
+                                        {/* Select / Delete Checkbox */}
+                                        {onSelect ? (
+                                            // Photo-selection mode: checkbox selects for post
+                                            <div className={`absolute top-3 left-3 z-10 transition-opacity ${selectedPhotos.includes(url) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => { e.stopPropagation(); onSelect(url); }}
+                                                    className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${selectedPhotos.includes(url) ? 'bg-[#006633] border-[#006633] shadow-lg text-white' : 'bg-white/80 backdrop-blur-sm border-gray-200 hover:border-[#006633]'}`}
+                                                >
+                                                    {selectedPhotos.includes(url) ? (
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                                    ) : (
+                                                        <div className="w-2 h-2 rounded-full bg-gray-200"></div>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            // Gallery-management mode: checkbox selects for deletion
+                                            <div className={`absolute top-3 left-3 z-10 transition-opacity ${selectedForDeletion.includes(url) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => toggleSelectionForDeletion(url, e)}
+                                                    className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all ${selectedForDeletion.includes(url) ? 'bg-red-500 border-red-500 shadow-lg text-white' : 'bg-white/80 backdrop-blur-sm border-gray-200 hover:border-red-400'}`}
+                                                >
+                                                    {selectedForDeletion.includes(url) ? (
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                                    ) : (
+                                                        <div className="w-2 h-2 rounded-full bg-gray-200"></div>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="flex justify-center gap-5 p-1">
                                         <button
+                                            type="button"
                                             onClick={(e) => toggleLock(url, e)}
                                             className={`transition-all ${!unlockedPhotos[url] ? 'text-amber-500 scale-110' : 'text-gray-300 hover:text-gray-500'}`}
                                             title={!unlockedPhotos[url] ? "Locked (Click to unlock)" : "Unlocked (Click to lock)"}
@@ -265,6 +320,7 @@ export default function HarvestGallery({
                                             </svg>
                                         </button>
                                         <button
+                                            type="button"
                                             onClick={(e) => handleDeleteClick(url, e)}
                                             className={`transition-all ${unlockedPhotos[url] ? 'text-red-500 hover:scale-110' : 'text-gray-200'}`}
                                             title={unlockedPhotos[url] ? "Delete Photo" : "Unlock to delete"}
@@ -278,8 +334,14 @@ export default function HarvestGallery({
                     ) : (
                         <div className="bg-white rounded-[40px] p-20 text-center border-2 border-dashed border-gray-100 animate-in fade-in duration-700">
                             <div className="text-6xl mb-6">🏜️</div>
-                            <h2 className="text-2xl font-black text-gray-300 mb-2 uppercase tracking-widest leading-tight">No Photos Found</h2>
-                            <p className="text-gray-400 font-medium tracking-tight">Try changing your filter or uploading new harvest photos.</p>
+                            <h2 className="text-2xl font-black text-gray-300 mb-2 uppercase tracking-widest leading-tight">
+                                {mediaType === "video" ? "No Videos Found" : "No Photos Found"}
+                            </h2>
+                            <p className="text-gray-400 font-medium tracking-tight">
+                                {mediaType === "video"
+                                    ? "Upload a video using the Upload tab."
+                                    : "Try changing your filter or uploading new harvest photos."}
+                            </p>
                         </div>
                     )}
                 </>
@@ -301,12 +363,14 @@ export default function HarvestGallery({
                             </p>
                             <div className="flex gap-4">
                                 <button
+                                    type="button"
                                     onClick={() => setPhotoToDelete(null)}
                                     className="flex-1 py-4 font-black text-gray-400 bg-gray-50 hover:bg-gray-100 rounded-2xl transition-all uppercase tracking-widest text-xs"
                                 >
                                     Cancel
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={confirmDelete}
                                     className="flex-1 py-4 font-black text-white bg-red-600 hover:bg-red-700 rounded-2xl shadow-xl shadow-red-200 transition-all uppercase tracking-widest text-xs"
                                 >
@@ -345,6 +409,7 @@ export default function HarvestGallery({
 
                             <div className="flex gap-4">
                                 <button
+                                    type="button"
                                     onClick={() => {
                                         setShowBulkDeleteModal(false);
                                         setDeleteConfirmText("");
@@ -355,6 +420,7 @@ export default function HarvestGallery({
                                     Cancel
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={confirmBulkDelete}
                                     disabled={isDeletingBulk || deleteConfirmText.toLowerCase() !== 'delete'}
                                     className="flex-1 py-5 font-black text-white bg-red-600 hover:bg-red-700 rounded-2xl shadow-2xl shadow-red-200 transition-all uppercase tracking-widest text-xs disabled:opacity-30 flex items-center justify-center gap-2"
@@ -375,6 +441,7 @@ export default function HarvestGallery({
                 <div className="fixed inset-0 z-[5000] flex items-center justify-center p-5 bg-black/40 backdrop-blur-md animate-in fade-in duration-300">
                     <div className="bg-white rounded-[32px] p-10 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-300 border border-gray-100 relative">
                         <button
+                            type="button"
                             onClick={() => setShowLockWarning(false)}
                             className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition-colors"
                         >
@@ -389,6 +456,7 @@ export default function HarvestGallery({
                                 To prevent accidental deletion, please click the lock icon below the photo to unlock it before deleting.
                             </p>
                             <button
+                                type="button"
                                 onClick={() => setShowLockWarning(false)}
                                 className="w-full py-5 font-black text-white bg-[#006633] hover:bg-[#004d26] rounded-2xl shadow-xl shadow-green-900/20 transition-all text-xl"
                             >

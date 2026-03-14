@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import HarvestGallery from "./HarvestGallery";
@@ -8,6 +8,8 @@ import HarvestGallery from "./HarvestGallery";
 interface PhotoManagerProps {
     onSelect?: (url: string) => void;
     selectedPhotos?: string[];
+    onSelectVideo?: (url: string) => void;
+    selectedVideos?: string[];
     harvestData?: {
         produceType: string;
         quantity: string;
@@ -21,10 +23,26 @@ interface PhotoManagerProps {
 export default function PhotoManager({
     onSelect,
     selectedPhotos = [],
+    onSelectVideo,
+    selectedVideos = [],
     harvestData,
     maxSelection = 4
 }: PhotoManagerProps) {
+    const [mediaMode, setMediaMode] = useState<"photo" | "video">("photo");
     const [activeTab, setActiveTab] = useState<"upload" | "gallery" | "ai">("gallery");
+    const [videoTab, setVideoTab] = useState<"upload" | "gallery" | "ai">("upload");
+    const [profile, setProfile] = useState<any>(null);
+
+    // AI Video state
+    const [videoAiPrompt, setVideoAiPrompt] = useState("");
+    const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+    const [isGeneratingVideoPrompt, setIsGeneratingVideoPrompt] = useState(false);
+    const [videoPredictionId, setVideoPredictionId] = useState<string | null>(null);
+    const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
+    const [videoError, setVideoError] = useState<string | null>(null);
+    const [isUploadingAiVideo, setIsUploadingAiVideo] = useState(false);
+    const [videoPromptSource, setVideoPromptSource] = useState<string | null>(null);
+    const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
     const [isUploadingAi, setIsUploadingAi] = useState(false);
@@ -38,6 +56,26 @@ export default function PhotoManager({
     const [promptSource, setPromptSource] = useState<string | null>(null);
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [successMessage, setSuccessMessage] = useState("");
+
+    useEffect(() => {
+        const fetchProfile = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+            if (data) setProfile(data);
+        };
+        fetchProfile();
+    }, []);
+
+    const profileSettings = profile ? {
+        farmName:       profile.farm_name,
+        farmType:       profile.farm_type,
+        location:       profile.location,
+        autoLocation:   profile.auto_location,
+        brandVoice:     profile.brand_voice,
+        emojiUsage:     profile.emoji_usage,
+        defaultHashtags: profile.default_hashtags,
+    } : null;
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -95,9 +133,14 @@ export default function PhotoManager({
         setImageUsage(null);
 
         try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`;
+            }
             const response = await fetch("/api/generate-image", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers,
                 body: JSON.stringify({ prompt: aiPrompt, style: aiStyle }),
             });
 
@@ -119,15 +162,202 @@ export default function PhotoManager({
         }
     };
 
+    const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            setSuccessMessage("You must be logged in to upload videos.");
+            setShowSuccessModal(true);
+            return;
+        }
+
+        const file = files[0];
+
+        if (file.size > 52428800) {
+            setImageError("Video exceeds the 50MB limit. Please compress it or choose a shorter clip.");
+            return;
+        }
+
+        const fileExt = file.name.split('.').pop() || "mp4";
+        const fileName = `vid-${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+        const filePath = `${user.id}/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('harvest-photos')
+            .upload(filePath, file, { contentType: file.type });
+
+        if (uploadError) {
+            setImageError("Failed to upload video: " + uploadError.message);
+            return;
+        }
+
+        const { data } = await supabase.storage
+            .from('harvest-photos')
+            .createSignedUrl(filePath, 3600 * 24 * 7);
+
+        if (data?.signedUrl) {
+            if (onSelectVideo) onSelectVideo(data.signedUrl);
+            if (!harvestData) {
+                setSuccessMessage("Video uploaded successfully!");
+                setShowSuccessModal(true);
+            }
+        }
+    };
+
+    // Poll Replicate for video generation status
+    useEffect(() => {
+        if (!videoPredictionId) return;
+
+        pollIntervalRef.current = setInterval(async () => {
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                const pollHeaders: Record<string, string> = {};
+                if (session?.access_token) {
+                    pollHeaders["Authorization"] = `Bearer ${session.access_token}`;
+                }
+                const res = await fetch(`/api/poll-video?id=${videoPredictionId}`, { headers: pollHeaders });
+                const data = await res.json();
+
+                if (data.status === "succeeded" && data.videoUrl) {
+                    clearInterval(pollIntervalRef.current!);
+                    pollIntervalRef.current = null;
+                    setGeneratedVideoUrl(data.videoUrl);
+                    setIsGeneratingVideo(false);
+                    setVideoPredictionId(null);
+                } else if (data.status === "failed" || data.status === "canceled") {
+                    clearInterval(pollIntervalRef.current!);
+                    pollIntervalRef.current = null;
+                    setVideoError(data.error || "Video generation failed. Please try again.");
+                    setIsGeneratingVideo(false);
+                    setVideoPredictionId(null);
+                }
+                // else still starting/processing — keep polling
+            } catch {
+                // network hiccup — keep polling
+            }
+        }, 3000);
+
+        return () => {
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        };
+    }, [videoPredictionId]);
+
+    const generateAIVideoPrompt = async () => {
+        if (!harvestData?.produceType?.trim()) return;
+        setIsGeneratingVideoPrompt(true);
+        setVideoError(null);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`;
+            }
+            const res = await fetch("/api/generate-prompt", {
+                method: "POST",
+                headers,
+                body: JSON.stringify({ harvestData, mediaType: "video", profileSettings }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) { setVideoError(data.error || "Failed to generate prompt"); return; }
+            if (data.prompt) {
+                setVideoAiPrompt(data.prompt);
+                setVideoPromptSource(data.source);
+            }
+        } catch (err: any) {
+            setVideoError("An error occurred while generating the prompt.");
+        } finally {
+            setIsGeneratingVideoPrompt(false);
+        }
+    };
+
+    const generateAIVideo = async () => {
+        if (!videoAiPrompt.trim()) return;
+        setIsGeneratingVideo(true);
+        setVideoError(null);
+        setGeneratedVideoUrl(null);
+
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`;
+            }
+            const res = await fetch("/api/generate-video", {
+                method: "POST",
+                headers,
+                body: JSON.stringify({ prompt: videoAiPrompt }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setVideoError(data.error || "Failed to start video generation");
+                setIsGeneratingVideo(false);
+                return;
+            }
+            setVideoPredictionId(data.predictionId); // triggers polling useEffect
+        } catch (err: any) {
+            setVideoError(err.message || "An unexpected error occurred.");
+            setIsGeneratingVideo(false);
+        }
+    };
+
+    const saveAIVideo = async () => {
+        if (!generatedVideoUrl) return;
+        setIsUploadingAiVideo(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                setSuccessMessage("You must be logged in to save videos.");
+                setShowSuccessModal(true);
+                return;
+            }
+
+            const videoRes = await fetch(generatedVideoUrl);
+            const blob = await videoRes.blob();
+            const ext = blob.type.includes("webm") ? "webm" : "mp4";
+            const fileName = `vid-ai-${Date.now()}-${Math.random().toString(36).substring(2)}.${ext}`;
+            const filePath = `${user.id}/${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from("harvest-photos")
+                .upload(filePath, blob, { contentType: blob.type || "video/mp4" });
+            if (uploadError) throw uploadError;
+
+            const { data: urlData } = await supabase.storage
+                .from("harvest-photos")
+                .createSignedUrl(filePath, 3600 * 24 * 7);
+
+            if (urlData?.signedUrl) {
+                if (onSelectVideo) onSelectVideo(urlData.signedUrl);
+            }
+
+            setGeneratedVideoUrl(null);
+            setSuccessMessage("AI Video saved to your gallery!");
+            setShowSuccessModal(true);
+        } catch (err: any) {
+            console.error("Save AI video error:", err);
+            setSuccessMessage("Failed to save AI video.");
+            setShowSuccessModal(true);
+        } finally {
+            setIsUploadingAiVideo(false);
+        }
+    };
+
     const generateAIPrompt = async () => {
         if (!harvestData?.produceType.trim()) return;
         setIsGeneratingPrompt(true);
         setImageError(null);
         try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`;
+            }
             const response = await fetch("/api/generate-prompt", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ harvestData }),
+                headers,
+                body: JSON.stringify({ harvestData, profileSettings }),
             });
 
             const data = await response.json().catch(() => ({}));
@@ -153,18 +383,23 @@ export default function PhotoManager({
         <div className="bg-white p-8 rounded-2xl border-2 border-harvest-green/20 space-y-8 relative">
             <div className="flex items-center justify-between">
                 <h4 className="text-lg font-bold text-gray-800 flex items-center flex-wrap gap-y-2">
-                    <span className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setMediaMode("photo")}
+                        className={`flex items-center gap-2 transition-colors ${mediaMode === "photo" ? "text-gray-800" : "text-gray-400 hover:text-gray-600"}`}
+                    >
                         <span>📸</span> Photos
-                    </span>
+                    </button>
 
                     <div className="flex items-center gap-3 ml-0 sm:ml-6 pl-0 sm:pl-6 border-l-0 sm:border-l-2 border-gray-100">
-                        <span className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setMediaMode("video")}
+                            className={`flex items-center gap-2 transition-colors ${mediaMode === "video" ? "text-harvest-green" : "text-gray-400 hover:text-gray-600"}`}
+                        >
                             <span>🎥</span>
-                            <span className="text-gray-400 font-bold">Videos</span>
-                        </span>
-                        <span className="bg-amber-50 text-amber-600 text-[10px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider border border-amber-100">
-                            Coming Soon
-                        </span>
+                            <span className="font-bold">Videos</span>
+                        </button>
                     </div>
                 </h4>
                 <button
@@ -182,6 +417,7 @@ export default function PhotoManager({
                 <div className="absolute top-16 right-8 left-8 z-10 animate-in fade-in slide-in-from-top-2">
                     <div className="bg-[#f0f8f4] border-l-4 border-harvest-green p-6 rounded-r-xl shadow-lg relative">
                         <button
+                            type="button"
                             onClick={() => setShowPhotoTips(false)}
                             className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
                         >
@@ -201,7 +437,172 @@ export default function PhotoManager({
                 </div>
             )}
 
-            {/* Photo Source Tabs */}
+            {/* Video Mode */}
+            {mediaMode === "video" && (
+                <div className="space-y-6">
+                    {/* Video Tabs */}
+                    <div className="flex gap-4 p-1 bg-gray-100 rounded-xl">
+                        {[
+                            { id: "upload", label: "Upload", icon: "📤" },
+                            { id: "gallery", label: "Gallery", icon: "🎞️" },
+                            { id: "ai", label: "AI Generate", icon: "✨" },
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => {
+                                    setVideoTab(tab.id as "upload" | "gallery" | "ai");
+                                    if (tab.id === "ai" && !videoAiPrompt && harvestData?.produceType) {
+                                        generateAIVideoPrompt();
+                                    }
+                                }}
+                                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-bold transition-all ${videoTab === tab.id
+                                    ? "bg-white text-harvest-green shadow-sm"
+                                    : "text-gray-500 hover:text-harvest-green"
+                                }`}
+                            >
+                                <span>{tab.icon}</span>
+                                <span className="text-sm tracking-tight">{tab.label}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Video Upload Tab */}
+                    {videoTab === "upload" && (
+                        <div className="space-y-4">
+                            <div
+                                className="border-4 border-dashed border-gray-100 rounded-2xl p-10 text-center bg-gray-50 hover:border-harvest-green hover:bg-harvest-light transition-all cursor-pointer"
+                                onClick={() => document.getElementById('video-input')?.click()}
+                            >
+                                <input
+                                    type="file"
+                                    id="video-input"
+                                    hidden
+                                    accept="video/*"
+                                    onChange={handleVideoUpload}
+                                />
+                                <div className="text-4xl mb-4">🎥</div>
+                                <div className="text-base font-bold text-gray-800 mb-1">Upload a Video</div>
+                                <div className="text-xs text-gray-500">MP4, MOV, WebM supported · Max 1 video · 50MB limit</div>
+                            </div>
+                            {selectedVideos.length > 0 && (
+                                <div className="space-y-3">
+                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Selected Video</p>
+                                    {selectedVideos.map((url, i) => (
+                                        <div key={i} className="relative rounded-xl overflow-hidden bg-gray-900 aspect-video border-2 border-harvest-green/30 group">
+                                            <video src={url} controls preload="metadata" className="w-full h-full object-contain" />
+                                            <button
+                                                type="button"
+                                                onClick={() => onSelectVideo?.(url)}
+                                                className="absolute top-2 right-2 bg-red-500 text-white w-7 h-7 rounded-full flex items-center justify-center font-bold shadow-lg hover:bg-red-600 transition-all opacity-0 group-hover:opacity-100"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Video Gallery Tab */}
+                    {videoTab === "gallery" && (
+                        <HarvestGallery
+                            mediaType="video"
+                            onSelect={onSelectVideo}
+                            selectedPhotos={selectedVideos}
+                        />
+                    )}
+
+                    {/* AI Generate Tab */}
+                    {videoTab === "ai" && (
+                        <div className="space-y-4">
+                            {/* Prompt Input */}
+                            <div>
+                                <div className="flex justify-between items-end mb-2">
+                                    <label className="block font-bold text-xs text-gray-500 uppercase tracking-wider">Video Description</label>
+                                    <div className="flex items-center gap-2">
+                                        {videoPromptSource === "Template Fallback" && (
+                                            <span className="text-[10px] font-bold text-amber-500 italic">⚠️ AI Busy</span>
+                                        )}
+                                        {harvestData?.produceType && (
+                                            <button
+                                                type="button"
+                                                onClick={generateAIVideoPrompt}
+                                                disabled={isGeneratingVideoPrompt}
+                                                className="text-[10px] font-black uppercase text-harvest-green hover:bg-harvest-light px-2 py-1 rounded transition-colors flex items-center gap-1 disabled:opacity-30"
+                                            >
+                                                {isGeneratingVideoPrompt ? "✨ Magic..." : "✨ Magic Suggest"}
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                <textarea
+                                    value={videoAiPrompt}
+                                    onChange={(e) => setVideoAiPrompt(e.target.value)}
+                                    className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-harvest-green outline-none transition-all min-h-[100px] bg-white text-sm"
+                                    placeholder="Describe your harvest video... (e.g. A farmer harvesting ripe tomatoes at golden hour, slow pan, dew on leaves)"
+                                />
+                            </div>
+
+                            {/* Generate Button */}
+                            <button
+                                type="button"
+                                onClick={generateAIVideo}
+                                disabled={isGeneratingVideo || !videoAiPrompt.trim()}
+                                className="button-primary w-full justify-center py-3 text-sm disabled:opacity-50"
+                            >
+                                {isGeneratingVideo ? "⏳ Generating..." : "🎬 Generate Video"}
+                            </button>
+
+                            {/* Progress Indicator */}
+                            {isGeneratingVideo && (
+                                <div className="p-5 bg-gray-50 rounded-xl border border-gray-100 text-center space-y-3">
+                                    <div className="flex justify-center">
+                                        <div className="w-10 h-10 border-4 border-harvest-green/20 border-t-harvest-green rounded-full animate-spin"></div>
+                                    </div>
+                                    <p className="text-sm font-bold text-gray-700">Creating your video...</p>
+                                    <p className="text-xs text-gray-400">AI video generation takes 30–90 seconds. Hang tight!</p>
+                                </div>
+                            )}
+
+                            {/* Error */}
+                            {videoError && (
+                                <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm font-medium border border-red-100 italic">
+                                    ⚠️ {videoError}
+                                </div>
+                            )}
+
+                            {/* Generated Video Preview */}
+                            {generatedVideoUrl && (
+                                <div className="border-2 border-harvest-green rounded-xl overflow-hidden p-4 bg-gray-50 text-center animate-in zoom-in-95 duration-300 space-y-4">
+                                    <div className="rounded-lg overflow-hidden bg-gray-900 aspect-video">
+                                        <video
+                                            src={generatedVideoUrl}
+                                            controls
+                                            preload="metadata"
+                                            className="w-full h-full object-contain"
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={saveAIVideo}
+                                        disabled={isUploadingAiVideo}
+                                        className="bg-harvest-green text-white px-6 py-3 rounded-2xl font-black shadow-lg hover:shadow-xl transition-all text-sm disabled:opacity-50 flex items-center justify-center gap-2 mx-auto"
+                                    >
+                                        {isUploadingAiVideo ? "Saving..." : "✓ Save to Gallery"}
+                                    </button>
+                                </div>
+                            )}
+
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Photo Source Tabs + Tab Contents */}
+            {mediaMode === "photo" && (
+            <>
             <div className="flex gap-4 p-1 bg-gray-100 rounded-xl">
                 {[
                     { id: "upload", label: "Upload", icon: "📤" },
@@ -251,6 +652,7 @@ export default function PhotoManager({
 
                 {activeTab === "gallery" && (
                     <HarvestGallery
+                        mediaType="photo"
                         onSelect={onSelect}
                         selectedPhotos={selectedPhotos}
                     />
@@ -264,8 +666,8 @@ export default function PhotoManager({
                                     <label className="block font-bold text-xs text-gray-500 uppercase tracking-wider">Image Description</label>
                                     <div className="flex items-center gap-2">
                                         {promptSource === "Template Fallback" && (
-                                            <span className="text-[10px] font-bold text-amber-500 italic animate-pulse">
-                                                ⚠️ Busy: Using Template
+                                            <span className="text-[10px] font-bold text-amber-500 italic">
+                                                ⚠️ AI Busy
                                             </span>
                                         )}
                                         {harvestData?.produceType && (
@@ -374,6 +776,8 @@ export default function PhotoManager({
                     </div>
                 )}
             </div>
+            </>
+            )}
 
             {/* Inner Success Modal */}
             {showSuccessModal && (
@@ -388,6 +792,7 @@ export default function PhotoManager({
                                 {successMessage}
                             </p>
                             <button
+                                type="button"
                                 onClick={() => setShowSuccessModal(false)}
                                 className="w-full bg-harvest-green text-white font-bold py-4 text-lg rounded-xl transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95"
                             >

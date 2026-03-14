@@ -1,16 +1,32 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { OpenAI } from "openai";
 import { NextResponse } from "next/server";
+import { cqraRequireAuth } from "@/lib/cqra";
+import { containsDisallowedContent } from "@/lib/content-policy";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
 
 export async function POST(req: Request) {
+    const gate = await cqraRequireAuth(req, "generate_image");
+    if (!gate.ok) {
+        return NextResponse.json({ error: gate.error }, { status: gate.status });
+    }
+
     try {
         const { prompt, style } = await req.json();
 
         if (!prompt) {
             return NextResponse.json({ error: "Missing prompt" }, { status: 400 });
+        }
+
+        // Phase A content-policy hard-block.
+        // Must run before any model invocation or fallback provider call.
+        if (containsDisallowedContent(prompt)) {
+            return NextResponse.json(
+                { error: "Image prompt contains disallowed content and cannot be generated." },
+                { status: 400 }
+            );
         }
 
         console.log(`>>> Starting Image Generation Pipeline for: "${prompt}" [Style: ${style}]`);
@@ -199,18 +215,115 @@ export async function POST(req: Request) {
         // TIER 7: Unsplash Fallback (Stock Search)
         try {
             console.log(">>> Attempting Tier 7: Unsplash Backup...");
-            // Use a more reliable Unsplash photo URL format (curated collection)
+
             const fallbackMap: Record<string, string> = {
-                'tomato': 'https://images.unsplash.com/photo-1592841200221-a6898f307baa',
-                'berry': 'https://images.unsplash.com/photo-1518635017498-87afc04923ef',
-                'apple': 'https://images.unsplash.com/photo-1567306226416-28f0efdc88ce',
-                'corn': 'https://images.unsplash.com/photo-1551754655-cd27e38d2076',
-                'carrot': 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37',
-                'farm': 'https://images.unsplash.com/photo-1500382017468-9049fed747ef'
+                // Herbs (specific → category)
+                'herbs':       'https://images.unsplash.com/photo-1466637574441-749b8f19452f',
+                'basil':       'https://images.unsplash.com/photo-1466637574441-749b8f19452f',
+                'mint':        'https://images.unsplash.com/photo-1466637574441-749b8f19452f',
+                'cilantro':    'https://images.unsplash.com/photo-1466637574441-749b8f19452f',
+                'parsley':     'https://images.unsplash.com/photo-1466637574441-749b8f19452f',
+                'rosemary':    'https://images.unsplash.com/photo-1466637574441-749b8f19452f',
+                'thyme':       'https://images.unsplash.com/photo-1466637574441-749b8f19452f',
+                // Leafy greens
+                'lettuce':     'https://images.unsplash.com/photo-1622206151226-18ca2c9ab4a1',
+                'spinach':     'https://images.unsplash.com/photo-1590779033100-9f60a05a013d',
+                'kale':        'https://images.unsplash.com/photo-1515543904379-3d757afe72e4',
+                // Vegetables (specific → category)
+                'tomato':      'https://images.unsplash.com/photo-1592841200221-a6898f307baa',
+                'pepper':      'https://images.unsplash.com/photo-1563565375-f3fdfdbefa83',
+                'zucchini':    'https://images.unsplash.com/photo-1563565375-f3fdfdbefa83',
+                'squash':      'https://images.unsplash.com/photo-1508747703725-719777637510',
+                'pumpkin':     'https://images.unsplash.com/photo-1508747703725-719777637510',
+                'carrot':      'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37',
+                'corn':        'https://images.unsplash.com/photo-1551754655-cd27e38d2076',
+                'bean':        'https://images.unsplash.com/photo-1587735243615-c03f25aaff15',
+                'pea':         'https://images.unsplash.com/photo-1587735243615-c03f25aaff15',
+                'cucumber':    'https://images.unsplash.com/photo-1589621316382-008455b857cd',
+                'broccoli':    'https://images.unsplash.com/photo-1459411621453-7b03977f4bfc',
+                'onion':       'https://images.unsplash.com/photo-1518977822534-7049a61ee0c2',
+                'garlic':      'https://images.unsplash.com/photo-1540148426945-6cf22a6b2383',
+                'potato':      'https://images.unsplash.com/photo-1518977956812-cd3dbadaaf31',
+                'vegetables':  'https://images.unsplash.com/photo-1540420773420-3366772f4999',
+                // Fruits (specific → category)
+                'strawberry':  'https://images.unsplash.com/photo-1518635017498-87afc04923ef',
+                'blueberry':   'https://images.unsplash.com/photo-1518635017498-87afc04923ef',
+                'berry':       'https://images.unsplash.com/photo-1518635017498-87afc04923ef',
+                'orange':      'https://images.unsplash.com/photo-1582979512210-99b6a53386f9',
+                'lemon':       'https://images.unsplash.com/photo-1582979512210-99b6a53386f9',
+                'citrus':      'https://images.unsplash.com/photo-1582979512210-99b6a53386f9',
+                'apple':       'https://images.unsplash.com/photo-1567306226416-28f0efdc88ce',
+                'peach':       'https://images.unsplash.com/photo-1595743825637-cdafc8ad4173',
+                'fruit':       'https://images.unsplash.com/photo-1619566636858-adf3ef46400b',
+                // Generic fallback
+                'farm':        'https://images.unsplash.com/photo-1500382017468-9049fed747ef',
             };
 
-            const key = Object.keys(fallbackMap).find(k => prompt.toLowerCase().includes(k)) || 'farm';
-            const imgUrl = `${fallbackMap[key]}?auto=format&fit=crop&q=80&w=1024`;
+            // Priority-ordered list: most specific produce first, generic last.
+            // Word-boundary regex prevents "pineapple" matching "apple", etc.
+            const priorityKeywords: Array<{ word: string; mapKey: string }> = [
+                // Named herbs → category key "herbs"
+                { word: 'basil',      mapKey: 'herbs' },
+                { word: 'mint',       mapKey: 'herbs' },
+                { word: 'cilantro',   mapKey: 'herbs' },
+                { word: 'parsley',    mapKey: 'herbs' },
+                { word: 'rosemary',   mapKey: 'herbs' },
+                { word: 'thyme',      mapKey: 'herbs' },
+                { word: 'herb',       mapKey: 'herbs' },
+                // Named vegetables
+                { word: 'lettuce',    mapKey: 'lettuce' },
+                { word: 'spinach',    mapKey: 'spinach' },
+                { word: 'kale',       mapKey: 'kale' },
+                { word: 'tomato',     mapKey: 'tomato' },
+                { word: 'pepper',     mapKey: 'pepper' },
+                { word: 'zucchini',   mapKey: 'zucchini' },
+                { word: 'squash',     mapKey: 'squash' },
+                { word: 'pumpkin',    mapKey: 'pumpkin' },
+                { word: 'carrot',     mapKey: 'carrot' },
+                { word: 'corn',       mapKey: 'corn' },
+                { word: 'bean',       mapKey: 'bean' },
+                { word: 'pea',        mapKey: 'pea' },
+                { word: 'cucumber',   mapKey: 'cucumber' },
+                { word: 'broccoli',   mapKey: 'broccoli' },
+                { word: 'onion',      mapKey: 'onion' },
+                { word: 'garlic',     mapKey: 'garlic' },
+                { word: 'potato',     mapKey: 'potato' },
+                // Vegetable category
+                { word: 'vegetable',  mapKey: 'vegetables' },
+                // Named fruits
+                { word: 'strawberry', mapKey: 'strawberry' },
+                { word: 'blueberry',  mapKey: 'blueberry' },
+                { word: 'berry',      mapKey: 'berry' },
+                { word: 'orange',     mapKey: 'orange' },
+                { word: 'lemon',      mapKey: 'lemon' },
+                { word: 'citrus',     mapKey: 'citrus' },
+                { word: 'apple',      mapKey: 'apple' },
+                { word: 'peach',      mapKey: 'peach' },
+                // Fruit category
+                { word: 'fruit',      mapKey: 'fruit' },
+                // Generic
+                { word: 'farm',       mapKey: 'farm' },
+            ];
+
+            const lowerPrompt = prompt.toLowerCase();
+            const matched = priorityKeywords.find(({ word }) => {
+                // Build a suffix pattern that handles:
+                //   - regular plurals: tomato→tomatoes, potato→potatoes (o→oes)
+                //   - y→ies plurals:   berry→berries, strawberry→strawberries
+                //   - simple +s:       herb→herbs, lemon→lemons, cucumber→cucumbers
+                //   - unchanged:       corn, kale, garlic, citrus
+                let suffix: string;
+                if (word.endsWith('o')) {
+                    suffix = '(es)?';          // tomato, potato
+                } else if (word.endsWith('y')) {
+                    suffix = '(ies)?';         // berry (→ berries); also keeps "berry" itself via (ies)?
+                } else {
+                    suffix = 's?';             // everything else
+                }
+                return new RegExp(`\\b${word}${suffix}\\b`).test(lowerPrompt);
+            });
+            const key = matched?.mapKey ?? 'farm';
+            const imgUrl = `${fallbackMap[key] ?? fallbackMap['farm']}?auto=format&fit=crop&q=80&w=1024`;
 
             console.log(`>>> Tier 7 Success: Unsplash (${key})`);
             return NextResponse.json({

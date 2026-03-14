@@ -4,7 +4,8 @@ import { useState, useEffect, Suspense } from "react";
 import Header from "@/components/Header";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useHarvest } from "@/context/HarvestContext";
+import { useContent, TEMPLATE_CONFIG } from "@/context/ContentContext";
+import { photoTransfer } from "@/lib/photoTransfer";
 import { supabase } from "@/lib/supabase";
 import { postService, ContentPolicyError, assertContentPolicy } from "@/lib/posts";
 
@@ -26,12 +27,12 @@ const mockOptions = [
     }
 ];
 
-function HarvestContentInner() {
+function ContentPageInner() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const mode = searchParams.get("mode");
     const postId = searchParams.get("postId");
-    const { formData: harvestData, photos, setPhotos, videos, clearHarvest } = useHarvest();
+    const { formData, photos, setPhotos, videos, setVideos, clearContent } = useContent();
     const [options, setOptions] = useState<any[]>(mockOptions);
     const [usage, setUsage] = useState<any>(null);
     const [source, setSource] = useState<string | null>(null);
@@ -56,6 +57,8 @@ function HarvestContentInner() {
     const [isPreviewEditing, setIsPreviewEditing] = useState(false);
     const [showSuccessModal, setShowSuccessModal] = useState<{ platform: string; message: string } | null>(null);
 
+    const contentType = formData.contentType;
+    const config = TEMPLATE_CONFIG[contentType] || null;
 
     const handleCopy = (e: React.MouseEvent | null, text: string, idx: number | null) => {
         if (e) e.stopPropagation();
@@ -72,8 +75,7 @@ function HarvestContentInner() {
     const savePostToDB = async (status: 'draft' | 'published', platform: string) => {
         // Evaluate all persisted text fields before touching the DB.
         const option = options[selectedOption];
-        const title = [harvestData.variety, harvestData.produceType]
-            .filter(Boolean).join(' ') || 'Harvest Post';
+        const title = formData.primaryField || 'Content Post';
 
         // Hard-block: throws ContentPolicyError if any field contains clearly
         // disallowed content. Must remain OUTSIDE the try/catch below so the
@@ -88,14 +90,14 @@ function HarvestContentInner() {
                 title,
                 content: option.caption,
                 hashtags: option.hashtags,
-                template_type: harvestData.contentLength || 'short',
+                template_type: formData.contentLength || 'short',
                 status,
                 metadata: {
                     imageUrl: photos.length > 0 ? photos[0] : null,
                     platform,
-                    produceType: harvestData.produceType,
-                    quantity: harvestData.quantity,
-                    unit: harvestData.unit,
+                    contentType: formData.contentType,
+                    primaryField: formData.primaryField,
+                    secondaryField: formData.secondaryField,
                 },
             });
         } catch (err) {
@@ -104,6 +106,17 @@ function HarvestContentInner() {
     };
 
     const [profile, setProfile] = useState<any>(null);
+
+    useEffect(() => {
+        if (mode === "edit") return;
+        // ContentContext may already have photos if the provider persisted across
+        // navigation (happy path). Only restore from photoTransfer if it didn't.
+        if (photos.length === 0) {
+            const { photos: transferredPhotos, videos: transferredVideos } = photoTransfer.get();
+            if (transferredPhotos.length > 0) setPhotos(transferredPhotos);
+            if (transferredVideos.length > 0) setVideos(transferredVideos);
+        }
+    }, []);
 
     useEffect(() => {
         const fetchProfile = async () => {
@@ -121,7 +134,7 @@ function HarvestContentInner() {
     }, []);
 
     const fetchContent = async () => {
-        if (!harvestData || !harvestData.produceType) {
+        if (!formData || !formData.contentType) {
             setIsGenerating(false);
             return;
         }
@@ -139,7 +152,8 @@ function HarvestContentInner() {
                 method: "POST",
                 headers,
                 body: JSON.stringify({
-                    harvestData,
+                    contentData: formData,
+                    contentType: formData.contentType,
                     profileSettings: profile ? {
                         brandVoice: profile.brand_voice,
                         emojiUsage: profile.emoji_usage,
@@ -240,7 +254,7 @@ function HarvestContentInner() {
             return;
         }
 
-        if (!harvestData || !harvestData.produceType) return;
+        if (!formData || !formData.contentType) return;
 
         if (mode === "manual") {
             const manualOption = {
@@ -259,7 +273,7 @@ function HarvestContentInner() {
         }
 
         fetchContent();
-    }, [harvestData, retryCount, mode, postId, profile]);
+    }, [formData, retryCount, mode, postId, profile]);
 
     const handleEditStart = (idx: number) => {
         setIsEditing(idx);
@@ -350,7 +364,7 @@ function HarvestContentInner() {
 
                 setIsPublishing(false);
                 setShowPublishModal(false);
-                setShowSuccessModal({ platform: "linkedin", message: "Your harvest update is now live on LinkedIn!" });
+                setShowSuccessModal({ platform: "linkedin", message: "Your post is now live on LinkedIn!" });
             } catch (err: any) {
                 setIsPublishing(false);
                 console.error("LinkedIn publish error:", err);
@@ -389,7 +403,7 @@ function HarvestContentInner() {
                 // Persist to DB after confirmed API success
                 await savePostToDB('published', 'facebook');
 
-                setShowSuccessModal({ platform: "facebook", message: "Your harvest update is now live on your Facebook Business Page!" });
+                setShowSuccessModal({ platform: "facebook", message: "Your post is now live on your Facebook Business Page!" });
                 setIsPublishing(false);
                 setShowPublishModal(false);
                 return;
@@ -464,7 +478,7 @@ function HarvestContentInner() {
                     <div className="card max-w-lg mx-auto py-16">
                         <div className="w-16 h-16 border-4 border-gray-100 border-t-harvest-green rounded-full animate-spin mx-auto mb-8"></div>
                         <h2 className="text-3xl font-bold mb-3">Creating Your Content...</h2>
-                        <p className="text-gray-600">Our AI is drafting high-engagement captions for your harvest</p>
+                        <p className="text-gray-600">Our AI is drafting high-engagement captions for your post</p>
 
                         <div className="mt-10 space-y-4 max-w-sm mx-auto text-left">
                             <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
@@ -518,7 +532,7 @@ function HarvestContentInner() {
                                 {isPreviewEditing ? "Save Changes" : "Edit"}
                             </button>
                             <button
-                                onClick={() => mode === "manual" ? router.push("/create/harvest") : setView("review")}
+                                onClick={() => mode === "manual" ? router.push("/create") : setView("review")}
                                 className="px-6 py-2 bg-white border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-50 transition-all shadow-sm"
                             >
                                 ← Back
@@ -625,7 +639,7 @@ function HarvestContentInner() {
 
                                 {photos.length > 0 ? (
                                     <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-inner bg-gray-50 aspect-square">
-                                        <img src={photos[0]} alt="Harvest" className="w-full h-full object-cover" />
+                                        <img src={photos[0]} alt="Content" className="w-full h-full object-cover" />
                                     </div>
                                 ) : videos.length > 0 ? (
                                     <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-inner bg-gray-900 aspect-video">
@@ -679,7 +693,7 @@ function HarvestContentInner() {
                                             <span className="text-[10px] text-gray-400 font-medium tracking-tight">Posts directly to your LinkedIn profile</span>
                                         </div>
                                     </div>
-                                    <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'linkedin'} onChange={() => setScheduleType('linkedin')} />
+                                    <input type="radio" className="hidden" checked={scheduleType === 'linkedin'} onChange={() => setScheduleType('linkedin')} />
                                 </label>
 
                                 <label className="flex items-center justify-between p-5 rounded-[20px] transition-all border-2 bg-gray-50/50 border-transparent opacity-50 cursor-not-allowed">
@@ -808,7 +822,10 @@ function HarvestContentInner() {
                                 <div className="flex flex-col gap-3" style={{ animation: 'slideUp 0.5s ease-out 0.5s both' }}>
                                     <button
                                         type="button"
-                                        onClick={() => router.push('/dashboard')}
+                                        onClick={() => {
+                                            clearContent();
+                                            router.push('/dashboard');
+                                        }}
                                         className={`w-full py-4 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 ${showSuccessModal.platform === 'linkedin'
                                             ? 'bg-[#0a66c2] hover:bg-[#004182] shadow-[#0a66c2]/30'
                                             : showSuccessModal.platform === 'facebook'
@@ -852,30 +869,33 @@ function HarvestContentInner() {
             <div className="max-w-[1200px] mx-auto py-10 px-5">
                 <div className="card">
                     <div className="flex justify-between items-center pb-5 border-b-2 border-gray-100 mb-10">
-                        <h2 className="text-2xl font-bold text-harvest-green">Review Content Options</h2>
-                        <Link href="/create/harvest" className="button-secondary text-sm px-4 py-2">
+                        <h2 className="text-2xl font-bold text-harvest-green">
+                            {config ? `${config.icon} ${config.name}` : 'Review Content Options'}
+                        </h2>
+                        <Link href="/create" className="button-secondary text-sm px-4 py-2">
                             Back
                         </Link>
                     </div>
 
                     <div className="max-w-4xl mx-auto space-y-8">
-                        {/* Harvest Summary Card with Photos */}
+                        {/* Content Summary Card with Photos */}
                         <div className="flex flex-col md:flex-row gap-6">
-                            {harvestData && (
+                            {formData && formData.contentType && (
                                 <div className="flex-1 bg-gray-50 border-2 border-gray-100 rounded-2xl p-6 flex flex-wrap gap-8 items-center shadow-sm">
                                     <div className="flex-1">
-                                        <div className="text-xs font-bold text-harvest-green uppercase tracking-wider mb-2">Harvest Summary</div>
+                                        <div className="text-xs font-bold text-harvest-green uppercase tracking-wider mb-2">
+                                            {config ? config.name : 'Content'} Summary
+                                        </div>
                                         <h4 className="text-xl font-bold text-gray-800">
-                                            {harvestData.quantity && `${harvestData.quantity} ${harvestData.unit} of `}
-                                            {harvestData.variety} {harvestData.produceType}
+                                            {formData.primaryField}
                                         </h4>
-                                        {harvestData.notes && (
-                                            <p className="text-sm text-gray-500 mt-2 italic line-clamp-2">"{harvestData.notes}"</p>
+                                        {formData.details && (
+                                            <p className="text-sm text-gray-500 mt-2 italic line-clamp-2">"{formData.details}"</p>
                                         )}
                                     </div>
                                     <div className="bg-white px-4 py-2 rounded-lg border border-gray-200">
                                         <div className="text-[10px] text-gray-400 font-bold uppercase">Style</div>
-                                        <div className="text-sm font-bold text-gray-700 capitalize">{harvestData.contentLength} Copy</div>
+                                        <div className="text-sm font-bold text-gray-700 capitalize">{formData.contentLength} Copy</div>
                                     </div>
                                 </div>
                             )}
@@ -885,7 +905,7 @@ function HarvestContentInner() {
                                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide md:max-w-[300px]">
                                     {photos.map((url, i) => (
                                         <div key={`p${i}`} className="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border-2 border-white shadow-md">
-                                            <img src={url} alt={`Harvest ${i + 1}`} className="w-full h-full object-cover" />
+                                            <img src={url} alt={`Content ${i + 1}`} className="w-full h-full object-cover" />
                                         </div>
                                     ))}
                                     {videos.map((url, i) => (
@@ -1011,7 +1031,7 @@ function HarvestContentInner() {
                         {source === "Template Fallback" && (
                             <div className="flex flex-col items-center gap-2">
                                 <span className="text-[10px] text-amber-500 font-bold italic">
-                                    ⚠️ AI Busy: Showing high-engagement harvest templates
+                                    ⚠️ AI Busy: Showing high-engagement content templates
                                 </span>
                             </div>
                         )}
@@ -1064,7 +1084,7 @@ function HarvestContentInner() {
                         </div>
 
                         <div className="p-6 space-y-6">
-                            <p className="text-gray-600 text-sm">Select where you'd like to share this harvest update. Your selected caption and photo will be posted directly.</p>
+                            <p className="text-gray-600 text-sm">Select where you'd like to share this post. Your selected caption and photo will be posted directly.</p>
 
                             <div className="space-y-4">
                                 <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 flex items-center justify-between">
@@ -1197,14 +1217,17 @@ function HarvestContentInner() {
                             <div className="flex flex-col gap-3" style={{ animation: 'slideUp 0.5s ease-out 0.5s both' }}>
                                 <button
                                     type="button"
-                                    onClick={() => router.push('/dashboard')}
+                                    onClick={() => {
+                                        clearContent();
+                                        router.push('/dashboard');
+                                    }}
                                     className={`w-full py-4 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 ${showSuccessModal.platform === 'linkedin'
                                         ? 'bg-[#0a66c2] hover:bg-[#004182] shadow-[#0a66c2]/30'
                                         : showSuccessModal.platform === 'facebook'
                                             ? 'bg-[#1877f2] hover:bg-[#0d47a1] shadow-blue-600/30'
                                             : 'bg-[#006633] hover:bg-[#004d26] shadow-green-900/30'
                                         }`}
->
+                                >
                                     Go to Dashboard
                                 </button>
                                 <button
@@ -1253,7 +1276,7 @@ function HarvestContentInner() {
     );
 }
 
-export default function HarvestContent() {
+export default function ContentPage() {
     return (
         <Suspense fallback={
             <main>
@@ -1266,7 +1289,7 @@ export default function HarvestContent() {
                 </div>
             </main>
         }>
-            <HarvestContentInner />
+            <ContentPageInner />
         </Suspense>
     );
 }

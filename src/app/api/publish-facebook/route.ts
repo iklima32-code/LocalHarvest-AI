@@ -1,37 +1,75 @@
 import { NextResponse } from "next/server";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { decryptToken } from "@/lib/encryption";
 
 export async function POST(req: Request) {
+const supabaseAdmin = getSupabaseAdmin();
     try {
-        const { caption, imageUrl, postBusiness, postPersonal } = await req.json();
+        const { caption, imageUrl, videoUrl, postBusiness, postPersonal, userId } = await req.json();
 
-        // 1. Gather Facebook API Credentials from environment variables
-        const pageId = process.env.FACEBOOK_PAGE_ID;
-        const pageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+        // 1. Get the current user ID
+        if (!userId) {
+            return NextResponse.json({ error: "User not authenticated" }, { status: 401 });
+        }
 
-        // If credentials are missing, return a helpful error so the user knows what to configure
-        if (!pageId || !pageAccessToken) {
+        // 2. Fetch integration credentials from user's profile in the database
+        const { data: profile } = await getSupabaseAdmin()
+            .from('profiles')
+            .select('fb_page_id, fb_page_access_token')
+            .eq('id', userId)
+            .single();
+
+        const pageId = profile?.fb_page_id;
+        const encryptedPageToken = profile?.fb_page_access_token;
+
+        // If credentials are missing, return a helpful error
+        if (!pageId || !encryptedPageToken) {
             return NextResponse.json(
                 {
-                    error: "Facebook API credentials missing.",
-                    details: "Please add FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN to your .env file."
+                    error: "Facebook page not connected.",
+                    details: "Please go to Settings > Integrations to connect your Facebook Business Page."
                 },
                 { status: 400 }
             );
         }
+
+        // 3. Decrypt the page access token
+        const pageAccessToken = decryptToken(encryptedPageToken);
 
         const results = {
             business: { success: false, error: null as string | null, id: null },
             personal: { success: false, error: null as string | null, note: "" }
         };
 
-        // 2. Post to Business Page via Facebook Graph API
+        // 4. Post to Business Page via Facebook Graph API
         if (postBusiness) {
             try {
-                let fbUrl = `https://graph.facebook.com/v19.0/${pageId}/photos`;
+                let fbUrl: string;
+                let fbBody: Record<string, string>;
 
-                // If there's no image URL, we post a feed status instead of a photo
-                if (!imageUrl) {
-                    fbUrl = `https://graph.facebook.com/v19.0/${pageId}/feed`;
+                if (videoUrl) {
+                    // Video post: use /videos endpoint with file_url
+                    fbUrl = `https://graph.facebook.com/v25.0/${pageId}/videos`;
+                    fbBody = {
+                        access_token: pageAccessToken,
+                        description: caption,
+                        file_url: videoUrl,
+                    };
+                } else if (imageUrl) {
+                    // Photo post: use /photos endpoint with url
+                    fbUrl = `https://graph.facebook.com/v25.0/${pageId}/photos`;
+                    fbBody = {
+                        access_token: pageAccessToken,
+                        message: caption,
+                        url: imageUrl,
+                    };
+                } else {
+                    // Text-only post: use /feed endpoint
+                    fbUrl = `https://graph.facebook.com/v25.0/${pageId}/feed`;
+                    fbBody = {
+                        access_token: pageAccessToken,
+                        message: caption,
+                    };
                 }
 
                 const fbRes = await fetch(fbUrl, {
@@ -39,11 +77,7 @@ export async function POST(req: Request) {
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        access_token: pageAccessToken,
-                        message: caption,
-                        ...(imageUrl && { url: imageUrl }) // Attach image URL if available
-                    })
+                    body: JSON.stringify(fbBody)
                 });
 
                 const fbData = await fbRes.json();
@@ -59,7 +93,7 @@ export async function POST(req: Request) {
             }
         }
 
-        // 3. Handle Personal Profile Posting
+        // 5. Handle Personal Profile Posting
         // NOTE: Facebook deprecated API posting to Personal Timelines in Graph API v3.0 (2018).
         // To post to a personal profile, the recommended Facebook approach is using the Frontend Share Dialog.
         if (postPersonal) {
@@ -68,7 +102,10 @@ export async function POST(req: Request) {
 
         // If both failed or business failed when it was requested
         if (postBusiness && !results.business.success) {
-            return NextResponse.json({ error: "Failed to post to Facebook Page", results }, { status: 500 });
+            return NextResponse.json({ 
+                error: results.business.error || "Failed to post to Facebook Page", 
+                results 
+            }, { status: 500 });
         }
 
         return NextResponse.json({ success: true, results });
