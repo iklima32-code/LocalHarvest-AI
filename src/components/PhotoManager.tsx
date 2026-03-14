@@ -212,7 +212,12 @@ export default function PhotoManager({
 
         pollIntervalRef.current = setInterval(async () => {
             try {
-                const res = await fetch(`/api/poll-video?id=${videoPredictionId}`);
+                const { data: { session } } = await supabase.auth.getSession();
+                const pollHeaders: Record<string, string> = {};
+                if (session?.access_token) {
+                    pollHeaders["Authorization"] = `Bearer ${session.access_token}`;
+                }
+                const res = await fetch(`/api/poll-video?id=${videoPredictionId}`, { headers: pollHeaders });
                 const data = await res.json();
 
                 if (data.status === "succeeded" && data.videoUrl) {
@@ -244,9 +249,14 @@ export default function PhotoManager({
         setIsGeneratingVideoPrompt(true);
         setVideoError(null);
         try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`;
+            }
             const res = await fetch("/api/generate-prompt", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers,
                 body: JSON.stringify({ harvestData, mediaType: "video", profileSettings }),
             });
             const data = await res.json().catch(() => ({}));
@@ -269,9 +279,14 @@ export default function PhotoManager({
         setGeneratedVideoUrl(null);
 
         try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) {
+                headers["Authorization"] = `Bearer ${session.access_token}`;
+            }
             const res = await fetch("/api/generate-video", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers,
                 body: JSON.stringify({ prompt: videoAiPrompt }),
             });
             const data = await res.json();
@@ -402,6 +417,7 @@ export default function PhotoManager({
                 <div className="absolute top-16 right-8 left-8 z-10 animate-in fade-in slide-in-from-top-2">
                     <div className="bg-[#f0f8f4] border-l-4 border-harvest-green p-6 rounded-r-xl shadow-lg relative">
                         <button
+                            type="button"
                             onClick={() => setShowPhotoTips(false)}
                             className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
                         >
@@ -507,7 +523,7 @@ export default function PhotoManager({
                                     <label className="block font-bold text-xs text-gray-500 uppercase tracking-wider">Video Description</label>
                                     <div className="flex items-center gap-2">
                                         {videoPromptSource === "Template Fallback" && (
-                                            <span className="text-[10px] font-bold text-amber-500 italic animate-pulse">⚠️ Busy: Using Template</span>
+                                            <span className="text-[10px] font-bold text-amber-500 italic">⚠️ AI Busy</span>
                                         )}
                                         {harvestData?.produceType && (
                                             <button
@@ -579,12 +595,6 @@ export default function PhotoManager({
                                 </div>
                             )}
 
-                            {/* Info note */}
-                            {!isGeneratingVideo && !generatedVideoUrl && (
-                                <p className="text-[10px] text-gray-400 text-center italic">
-                                    Powered by WAN 2.1 · Generates a ~5 second 480p clip · Requires REPLICATE_API_KEY
-                                </p>
-                            )}
                         </div>
                     )}
                 </div>
@@ -656,8 +666,8 @@ export default function PhotoManager({
                                     <label className="block font-bold text-xs text-gray-500 uppercase tracking-wider">Image Description</label>
                                     <div className="flex items-center gap-2">
                                         {promptSource === "Template Fallback" && (
-                                            <span className="text-[10px] font-bold text-amber-500 italic animate-pulse">
-                                                ⚠️ Busy: Using Template
+                                            <span className="text-[10px] font-bold text-amber-500 italic">
+                                                ⚠️ AI Busy
                                             </span>
                                         )}
                                         {harvestData?.produceType && (
@@ -782,6 +792,7 @@ export default function PhotoManager({
                                 {successMessage}
                             </p>
                             <button
+                                type="button"
                                 onClick={() => setShowSuccessModal(false)}
                                 className="w-full bg-harvest-green text-white font-bold py-4 text-lg rounded-xl transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95"
                             >

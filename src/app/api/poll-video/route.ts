@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
+import { cqraRequireAuth } from "@/lib/cqra";
 
 export async function GET(req: Request) {
+    const gate = await cqraRequireAuth(req, "poll_video");
+    if (!gate.ok) {
+        return NextResponse.json({ error: gate.error }, { status: gate.status });
+    }
+
     try {
         const { searchParams } = new URL(req.url);
         const predictionId = searchParams.get("id");

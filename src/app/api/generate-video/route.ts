@@ -1,9 +1,15 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
+import { cqraRequireAuth } from "@/lib/cqra";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export async function POST(req: Request) {
+    const gate = await cqraRequireAuth(req, "generate_video");
+    if (!gate.ok) {
+        return NextResponse.json({ error: gate.error }, { status: gate.status });
+    }
+
     try {
         const { prompt } = await req.json();
 
