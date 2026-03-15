@@ -33,6 +33,7 @@ export default function HarvestGallery({
     const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
     const [deleteConfirmText, setDeleteConfirmText] = useState("");
     const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+    const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
 
     const fetchGallery = async () => {
         setLoading(true);
@@ -242,7 +243,13 @@ export default function HarvestGallery({
                                     <div
                                         className={`aspect-square overflow-hidden rounded-[20px] shadow-sm cursor-pointer transition-all duration-300 hover:scale-[1.03] border-[3px] ${selectedPhotos.includes(url) ? 'border-[#006633] scale-[1.02]' : 'border-transparent hover:border-gray-100'
                                             } ${selectedForDeletion.includes(url) ? 'ring-4 ring-red-500/20 opacity-80' : ''} relative`}
-                                        onClick={() => onSelect?.(url)}
+                                        onClick={() => {
+                                            if (isVideoFile(url)) {
+                                                setPlayingVideoUrl(url);
+                                            } else {
+                                                onSelect?.(url);
+                                            }
+                                        }}
                                     >
                                         {isVideoFile(url) ? (
                                             <>
@@ -463,6 +470,27 @@ export default function HarvestGallery({
                                 Got it!
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Video Player Modal */}
+            {playingVideoUrl && (
+                <div className="fixed inset-0 z-[6000] flex items-center justify-center p-5 bg-black/95 backdrop-blur-lg animate-in fade-in duration-500">
+                    <div className="relative w-full max-w-5xl aspect-video rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-500 border border-white/10">
+                        <button
+                            type="button"
+                            onClick={() => setPlayingVideoUrl(null)}
+                            className="absolute top-6 right-6 z-10 w-12 h-12 bg-black/50 hover:bg-black/80 text-white rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-xl hover:scale-105 border border-white/20"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                        <video
+                            src={playingVideoUrl}
+                            controls
+                            autoPlay
+                            className="w-full h-full object-contain bg-black"
+                        />
                     </div>
                 </div>
             )}
