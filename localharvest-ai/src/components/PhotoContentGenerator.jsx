@@ -178,7 +178,7 @@ export default function PhotoContentGenerator() {
     try {
       const imageBase64    = file ? await toBase64(file) : null
       const imageMediaType = file?.type || "image/jpeg"
-      const res  = await fetch("http://localhost:3000/generate", {
+      const res  = await fetch("/api/generate-content", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ produceName: produce, farmName: farm, imageBase64, imageMediaType }),
