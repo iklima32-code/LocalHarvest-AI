@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LocalHarvest AI</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            farm: { green: '#16a34a', dark: '#14532d', light: '#bbf7d0', bg: '#f0fdf4' }
+          },
+          fontFamily: { sans: ['Inter','sans-serif'], display: ['Playfair Display','serif'] }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+    @keyframes fadeInUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes pulse-ring { 0%{transform:scale(1);opacity:.6} 100%{transform:scale(1.5);opacity:0} }
+    @keyframes spin-slow { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    .shimmer { background:linear-gradient(90deg,#e2e8f0 25%,#f8fafc 50%,#e2e8f0 75%); background-size:200% 100%; animation:shimmer 1.5s infinite; }
+    .fade-up { animation:fadeInUp .5s ease both; }
+    .card-hover { transition:transform .2s ease,box-shadow .2s ease; }
+    .card-hover:hover { transform:translateY(-3px); box-shadow:0 20px 40px rgba(0,0,0,.12); }
+    .spin-slow { animation:spin-slow 3s linear infinite; }
+    body { font-family:'Inter',sans-serif; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 min-h-screen">
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
