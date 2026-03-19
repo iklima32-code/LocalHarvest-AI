@@ -168,12 +168,25 @@ export default function SettingsPage() {
         const file = e.target.files?.[0];
         if (!file) return;
 
+        // Proactive size check (2MB max for images, 10MB for audio)
+        const isVoiceSample = field.startsWith('voice');
+        const maxSize = isVoiceSample ? 10 * 1024 * 1024 : 2 * 1024 * 1024; // 10MB for audio, 2MB for images
+        
+        if (file.size > maxSize) {
+            setMessage({ 
+                type: "error", 
+                text: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Max size for ${isVoiceSample ? 'audio is 10MB' : 'photos is 2MB'}.` 
+            });
+            return;
+        }
+
         setUploading(field);
+        setMessage({ type: "", text: "" }); // Clear previous errors
+
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error("No user found");
 
-            const isVoiceSample = field.startsWith('voice');
             const bucketName = isVoiceSample ? 'ai-samples' : 'profiles';
 
             const fileExt = file.name.split('.').pop();
@@ -185,7 +198,13 @@ export default function SettingsPage() {
                 .from(bucketName)
                 .upload(filePath, file);
 
-            if (uploadError) throw uploadError;
+            if (uploadError) {
+                // Map cryptic Supabase errors to friendly messages
+                if (uploadError.message.includes("exceeded the maximum allowed size")) {
+                    throw new Error("This file is too large for our storage. Please use a smaller image under 2MB.");
+                }
+                throw uploadError;
+            }
 
             // Get URL (Note: 'ai-samples' is private, but publicUrl works if RLS allows or via signed URLs for AI)
             const { data: { publicUrl } } = supabase.storage

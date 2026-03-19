@@ -127,10 +127,10 @@ export default function OnboardingPage() {
                 .update({ onboarding_completed: true })
                 .eq('id', user.id);
 
-            router.push("/dashboard");
+            router.push("/create");
         } catch (err) {
             console.error("Skip error:", err);
-            router.push("/dashboard"); // Redirect anyway as fallback
+            router.push("/create"); // Redirect anyway as fallback
         } finally {
             setLoading(false);
         }
@@ -169,7 +169,7 @@ export default function OnboardingPage() {
                 .eq('id', user.id);
 
             if (error) throw error;
-            router.push("/dashboard?onboarding=success");
+            router.push("/create?onboarding=success");
         } catch (err) {
             console.error("Onboarding error:", err);
             alert("Failed to save profile. Please try again.");

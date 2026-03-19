@@ -3,7 +3,12 @@
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-export default function NavigationGuard() {
+interface NavigationGuardProps {
+    onSaveDraft?: () => Promise<void>;
+    showSaveOption?: boolean;
+}
+
+export default function NavigationGuard({ onSaveDraft, showSaveOption = false }: NavigationGuardProps) {
     const pathname = usePathname();
     const router = useRouter();
     const [showWarning, setShowWarning] = useState(false);
@@ -69,10 +74,24 @@ export default function NavigationGuard() {
 
                     <h3 className="text-2xl font-black text-gray-900 mb-3 tracking-tight">Unsaved Content!</h3>
                     <p className="text-gray-500 mb-10 leading-relaxed font-medium">
-                        If you leave now, you will lose your draft post data. Are you sure?
+                        If you leave now, you will lose your data. What do you want to do?
                     </p>
 
                     <div className="flex flex-col gap-3">
+                        {showSaveOption && onSaveDraft && (
+                            <button
+                                onClick={async () => {
+                                    await onSaveDraft();
+                                    if (pendingUrl) {
+                                        window.location.href = pendingUrl;
+                                    }
+                                    setShowWarning(false);
+                                }}
+                                className="w-full bg-[#006633] text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-green-900/10 hover:brightness-110 active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                <span className="text-xl">💾</span> Save as Draft
+                            </button>
+                        )}
                         <button
                             onClick={() => {
                                 if (pendingUrl) {
@@ -82,14 +101,14 @@ export default function NavigationGuard() {
                             }}
                             className="w-full bg-red-50 text-red-600 font-bold py-4 rounded-2xl transition-all hover:bg-red-100 active:scale-95"
                         >
-                            Yes, Discard Draft
+                            Discard Draft
                         </button>
                         <button
                             onClick={() => {
                                 setShowWarning(false);
                                 setPendingUrl(null);
                             }}
-                            className="w-full bg-[#006633] text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-green-900/20 hover:brightness-110 active:scale-95"
+                            className="w-full bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl transition-all hover:bg-gray-200 active:scale-95"
                         >
                             Wait, Stay Here
                         </button>

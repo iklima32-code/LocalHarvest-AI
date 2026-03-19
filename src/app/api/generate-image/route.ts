@@ -53,7 +53,7 @@ export async function POST(req: Request) {
 
         if (process.env.GEMINI_API_KEY) {
             try {
-                const promptModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+                const promptModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
                 const promptResult = await promptModel.generateContent([systemPrompt, `Create a high-quality photo prompt for: ${prompt}`]);
                 const promptResponse = await promptResult.response;
                 expandedPrompt = promptResponse.text().trim() || prompt;
@@ -126,7 +126,7 @@ export async function POST(req: Request) {
         if (process.env.GEMINI_API_KEY) {
             try {
                 console.log(">>> Attempting Tier 3: Gemini 2.5 Flash Image...");
-                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-image" }, { apiVersion: "v1beta" });
+                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { apiVersion: "v1beta" });
                 const result = await model.generateContent(expandedPrompt);
                 const response = await result.response;
                 const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
@@ -144,7 +144,7 @@ export async function POST(req: Request) {
             // TIER 4: Gemini 3 Pro Image (Preview)
             try {
                 console.log(">>> Attempting Tier 4: Gemini 3 Pro Image...");
-                const model = genAI.getGenerativeModel({ model: "gemini-3-pro-image-preview" }, { apiVersion: "v1beta" });
+                const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" }, { apiVersion: "v1beta" });
                 const result = await model.generateContent(expandedPrompt);
                 const response = await result.response;
                 const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);

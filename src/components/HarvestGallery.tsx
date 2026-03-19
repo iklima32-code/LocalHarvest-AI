@@ -171,10 +171,26 @@ export default function HarvestGallery({
         } catch { return false; }
     };
 
+    const isAiVideo = (url: string) => {
+        try {
+            const path = new URL(url).pathname;
+            const fileName = path.split('/').pop() || "";
+            return fileName.includes('vid-ai-');
+        } catch { return false; }
+    };
+
     const filteredPhotos = galleryPhotos.filter(url => {
+        const isVideo = isVideoFile(url);
+        
         // First separate by media type
-        if (mediaType === "video") return isVideoFile(url);
-        if (isVideoFile(url)) return false; // hide videos from photo gallery
+        if (mediaType === "video") {
+            if (!isVideo) return false;
+            if (filter === "all") return true;
+            const isAi = isAiVideo(url);
+            return filter === "ai" ? isAi : !isAi;
+        }
+        
+        if (isVideo) return false; // hide videos from photo gallery
 
         // Then apply photo-specific filters
         if (filter === "all") return true;
@@ -188,15 +204,13 @@ export default function HarvestGallery({
             <div className="flex flex-col gap-4">
                 <div className="bg-white border border-gray-100 rounded-2xl p-6 flex flex-wrap justify-between items-center gap-6 shadow-sm">
                     <div className="flex items-center gap-6">
-                        {mediaType === "photo" && <div className="text-gray-500 font-bold text-sm uppercase tracking-wider">Filter:</div>}
+                        <div className="text-gray-500 font-bold text-sm uppercase tracking-wider">Filter:</div>
                         <div className="flex gap-6">
-                            {(mediaType === "photo" ? [
+                            {[
                                 { id: "all", label: "All" },
                                 { id: "user", label: "User" },
                                 { id: "ai", label: "AI" }
-                            ] : [
-                                { id: "all", label: "My Videos" }
-                            ]).map((opt) => (
+                            ].map((opt) => (
                                 <label key={opt.id} className="flex items-center gap-3 cursor-pointer group">
                                     <div className={`w-5 h-5 rounded-full border-2 transition-all flex items-center justify-center ${filter === opt.id ? 'border-green-600' : 'border-gray-200 group-hover:border-green-300'}`}>
                                         {filter === opt.id && <div className="w-2.5 h-2.5 rounded-full bg-green-600"></div>}

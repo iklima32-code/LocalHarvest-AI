@@ -14,16 +14,34 @@ export default function Header() {
 
     useEffect(() => {
         const fetchUser = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            setUser(user);
+            try {
+                const { data: { user }, error } = await supabase.auth.getUser();
+                
+                if (error) {
+                    // Handle stale/invalid sessions
+                    if (error.message.includes("Refresh Token Not Found") || error.message.includes("invalid_grant")) {
+                        console.warn("Stale session detected, clearing auth data.");
+                        await supabase.auth.signOut();
+                        localStorage.clear();
+                        setUser(null);
+                        setProfile(null);
+                        return;
+                    }
+                    console.error("Auth error:", error.message);
+                }
 
-            if (user) {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', user.id)
-                    .single();
-                setProfile(profile);
+                setUser(user);
+
+                if (user) {
+                    const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .eq('id', user.id)
+                        .single();
+                    setProfile(profile);
+                }
+            } catch (err) {
+                console.error("Failed to fetch user:", err);
             }
         };
 
@@ -31,7 +49,6 @@ export default function Header() {
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
-                // Clear state
                 setUser(null);
                 setProfile(null);
             } else if (session?.user) {
@@ -39,11 +56,11 @@ export default function Header() {
                 fetchUser();
             }
 
-            // If we detect an invalid session error, force a cleanup
+            // Handle token refresh issues in real-time
             if (event === 'TOKEN_REFRESHED' && !session) {
                 console.warn("Session expired or invalid. Clearing site data.");
                 localStorage.clear();
-                window.location.href = "/login";
+                window.location.reload(); // Reload to clear any lingering state
             }
         });
 
@@ -54,7 +71,7 @@ export default function Header() {
         { href: "/dashboard", label: "Dashboard", icon: "📊" },
         { href: "/create", label: "Create", icon: "✨" },
         { href: "/gallery", label: "Gallery", icon: "🖼️" },
-        { href: "/recent", label: "History", icon: "🕒" },
+        { href: "/recent", label: "Posts", icon: "🕒" },
     ];
 
     const handleLogout = async () => {

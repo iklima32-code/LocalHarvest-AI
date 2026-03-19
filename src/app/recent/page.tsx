@@ -7,6 +7,8 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { postService } from "@/lib/posts";
 import PostDetailModal from "@/components/PostDetailModal";
+import { useHarvest } from "@/context/HarvestContext";
+import { useContent } from "@/context/ContentContext";
 
 function timeAgo(dateStr: string): string {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -41,6 +43,72 @@ export default function RecentPosts() {
     const [posts, setPosts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedPost, setSelectedPost] = useState<any | null>(null);
+    const [filter, setFilter] = useState<'published' | 'scheduled' | 'draft'>('published');
+    const { setFormData: setHarvestFormData, setPhotos: setHarvestPhotos, setVideos: setHarvestVideos } = useHarvest();
+    const { setFormData: setContentFormData, setPhotos: setContentPhotos, setVideos: setContentVideos } = useContent();
+    const [postToDelete, setPostToDelete] = useState<any | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const confirmDelete = async () => {
+        if (!postToDelete) return;
+        setIsDeleting(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            const { error } = await supabase
+                .from("posts")
+                .delete()
+                .eq("id", postToDelete.id)
+                .eq("user_id", user.id);
+            if (error) {
+                alert('Failed to delete post');
+            } else {
+                setPosts(prev => prev.filter(p => p.id !== postToDelete.id));
+                setPostToDelete(null);
+            }
+        } catch (err) {
+            console.error('Delete error:', err);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+
+    const handleAction = async (post: any, action: 'clone' | 'edit' | 'delete') => {
+        if (action === 'delete') {
+            setPostToDelete(post);
+            return;
+        }
+
+        // Reconstruct state for edit/clone
+        const type = (post.template_type === 'short' || post.template_type === 'long' || !post.template_type) ? 'harvest' : post.template_type;
+
+        if (type === 'harvest') {
+            setHarvestFormData({
+                produceType: post.metadata?.produceType || "",
+                quantity: post.metadata?.quantity || "",
+                unit: post.metadata?.unit || "lbs",
+                variety: post.metadata?.variety || "",
+                notes: post.content || "",
+                contentLength: post.metadata?.contentLength || "short",
+            });
+            if (post.metadata?.imageUrl) setHarvestPhotos([post.metadata.imageUrl]);
+            if (post.metadata?.videoUrl) setHarvestVideos([post.metadata.videoUrl]);
+            router.push(`/create/harvest/content?mode=${action === 'clone' ? 'clone' : 'edit'}&postId=${post.id}`);
+        } else {
+            setContentFormData({
+                contentType: post.template_type as any,
+                primaryField: post.title || "",
+                secondaryField: post.metadata?.secondaryField || "",
+                details: post.content || "",
+                contentLength: post.metadata?.contentLength || "short",
+                extra1: post.metadata?.extra1 || "",
+            });
+            if (post.metadata?.imageUrl) setContentPhotos([post.metadata.imageUrl]);
+            if (post.metadata?.videoUrl) setContentVideos([post.metadata.videoUrl]);
+            router.push(`/create/content?mode=${action === 'clone' ? 'clone' : 'edit'}&postId=${post.id}`);
+        }
+    };
 
     useEffect(() => {
         const load = async () => {
@@ -69,31 +137,37 @@ export default function RecentPosts() {
                 <PostDetailModal
                     post={selectedPost}
                     onClose={() => setSelectedPost(null)}
-                    onDelete={async () => {
-                        const { data: { user } } = await supabase.auth.getUser();
-                        if (!user) return;
-                        const { data: deleted, error } = await supabase
-                            .from("posts")
-                            .delete()
-                            .eq("id", selectedPost.id)
-                            .eq("user_id", user.id)
-                            .select("id");
-                        if (error) throw error;
-                        if (!deleted || deleted.length === 0) {
-                            throw new Error("Delete failed: post was not removed. Check your permissions.");
-                        }
-                        setPosts((prev) => prev.filter((p) => p.id !== selectedPost.id));
+                    onEdit={() => handleAction(selectedPost, 'edit')}
+                    onClone={() => handleAction(selectedPost, 'clone')}
+                    onDelete={() => {
+                        const post = selectedPost;
                         setSelectedPost(null);
+                        handleAction(post, 'delete');
                     }}
                 />
             )}
 
             <div className="max-w-[1200px] mx-auto py-10 px-5">
                 <div className="card">
-                    <div className="flex justify-between items-center pb-5 border-b-2 border-gray-100 mb-8">
-                        <h2 className="text-2xl font-bold text-harvest-green">Post History</h2>
-                        <Link href="/create/harvest" className="button-primary text-sm px-4 py-2">
-                            + Create New Post
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-5 border-b-2 border-gray-100 mb-8 gap-4">
+                        <h2 className="text-2xl font-bold text-harvest-green">My Posts</h2>
+                        <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-2xl border border-gray-100">
+                            {[
+                                { id: 'published', label: 'Published' },
+                                { id: 'scheduled', label: 'Scheduled' },
+                                { id: 'draft', label: 'Drafts' }
+                            ].map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setFilter(tab.id as any)}
+                                    className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${filter === tab.id ? 'bg-white shadow-sm text-harvest-green border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+                        <Link href="/create" className="button-primary button-sparkle text-sm px-4 py-2">
+                            ✨ Create New Post
                         </Link>
                     </div>
 
@@ -107,18 +181,26 @@ export default function RecentPosts() {
                                 </div>
                             ))}
                         </div>
-                    ) : posts.length === 0 ? (
+                    ) : posts.filter(p => p.status === filter).length === 0 ? (
                         <div className="text-center py-20 text-gray-400">
                             <div className="text-5xl mb-4">📭</div>
-                            <h3 className="text-xl font-bold text-gray-500 mb-2">No posts yet</h3>
-                            <p className="text-sm mb-6">Create your first harvest post to see it here.</p>
+                            <h3 className="text-xl font-bold text-gray-500 mb-2">
+                                No {filter} posts yet
+                            </h3>
+                            <p className="text-sm mb-6">
+                                {filter === 'draft' ? "When you start a post and save it, it will appear here." : 
+                                 filter === 'scheduled' ? "Any posts you schedule for future dates will appear here." :
+                                 "You haven't published any posts yet."}
+                            </p>
                             <Link href="/create/harvest" className="button-primary text-sm px-6 py-3">
-                                Create Your First Post
+                                Create New Post
                             </Link>
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 gap-4">
-                            {posts.map((post) => {
+                            {posts
+                                .filter(p => p.status === filter)
+                                .map((post) => {
                                 const platformLabel = PLATFORM_LABELS[post.metadata?.platform] ?? '';
                                 return (
                                     <div
@@ -138,22 +220,67 @@ export default function RecentPosts() {
                                                     </span>
                                                 )}
                                             </div>
-                                            <span className="text-xs text-gray-400 font-medium shrink-0">
-                                                {timeAgo(post.created_at)}
-                                            </span>
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex items-center gap-1">
+                                                    {post.status === 'draft' ? (
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); handleAction(post, 'edit'); }}
+                                                            className="p-1.5 hover:bg-green-50 rounded-lg text-harvest-green transition-colors flex items-center gap-1 group/btn"
+                                                            title="Post Draft"
+                                                        >
+                                                            <span className="text-sm">🚀</span>
+                                                            <span className="text-[10px] font-black uppercase opacity-0 group-hover/btn:opacity-100 transition-opacity">Post</span>
+                                                        </button>
+                                                    ) : (
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); handleAction(post, 'clone'); }}
+                                                            className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600 transition-colors flex items-center gap-1 group/btn"
+                                                            title="Clone Post"
+                                                        >
+                                                            <span className="text-sm">📋</span>
+                                                            <span className="text-[10px] font-black uppercase opacity-0 group-hover/btn:opacity-100 transition-opacity">Clone</span>
+                                                        </button>
+                                                    )}
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); handleAction(post, 'delete'); }}
+                                                        className="p-1.5 hover:bg-red-50 rounded-lg text-red-500 transition-colors flex items-center gap-1 group/btn"
+                                                        title="Delete Post"
+                                                    >
+                                                        <span className="text-sm">🗑️</span>
+                                                        <span className="text-[10px] font-black uppercase opacity-0 group-hover/btn:opacity-100 transition-opacity">Delete</span>
+                                                    </button>
+                                                </div>
+                                                <span className="text-xs text-gray-400 font-medium shrink-0">
+                                                    {timeAgo(post.created_at)}
+                                                </span>
+                                            </div>
                                         </div>
 
                                         {/* Row 2: thumbnail + content */}
                                         <div className="flex gap-4">
-                                            {post.metadata?.imageUrl && (
-                                                <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100 border border-gray-100">
+                                        {(post.metadata?.imageUrl || post.metadata?.videoUrl) && (
+                                            <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-gray-900 border border-gray-100 relative group-hover:shadow-md transition-all">
+                                                {post.metadata.imageUrl ? (
                                                     <img
                                                         src={post.metadata.imageUrl}
                                                         alt=""
                                                         className="w-full h-full object-cover"
                                                     />
-                                                </div>
-                                            )}
+                                                ) : (
+                                                    <>
+                                                        <video
+                                                        src={post.metadata.videoUrl || undefined}
+                                                            className="w-full h-full object-cover opacity-60"
+                                                            muted
+                                                            playsInline
+                                                        />
+                                                        <div className="absolute inset-0 flex items-center justify-center text-white text-lg">
+                                                            ▶️
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
                                             <div className="flex-1 min-w-0">
                                                 {post.title && (
                                                     <h3 className="font-bold text-gray-800 mb-1 group-hover:text-harvest-green transition-colors text-sm leading-snug">
@@ -188,6 +315,33 @@ export default function RecentPosts() {
                     )}
                 </div>
             </div>
+
+            {postToDelete && (
+                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-5 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-[40px] max-w-sm w-full p-10 text-center shadow-2xl animate-in zoom-in-95 duration-200">
+                        <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-6">⚠️</div>
+                        <h3 className="text-2xl font-black text-gray-900 mb-2">Delete post?</h3>
+                        <p className="text-gray-500 mb-8 leading-relaxed text-sm">This action cannot be undone. Are you sure you want to delete <span className="font-bold text-gray-800">&quot;{postToDelete.title || (postToDelete.metadata?.produceType + ' Update')}&quot;</span>?</p>
+                        
+                        <div className="flex flex-col gap-3">
+                            <button
+                                onClick={confirmDelete}
+                                disabled={isDeleting}
+                                className="w-full py-5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-2xl transition-all shadow-xl shadow-red-100 disabled:opacity-50"
+                            >
+                                {isDeleting ? "Deleting..." : "Delete Permanently"}
+                            </button>
+                            <button
+                                onClick={() => setPostToDelete(null)}
+                                disabled={isDeleting}
+                                className="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-2xl transition-all"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </main>
     );
 }

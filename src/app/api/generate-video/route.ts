@@ -28,7 +28,7 @@ export async function POST(req: Request) {
         let expandedPrompt = prompt;
         if (process.env.GEMINI_API_KEY) {
             try {
-                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
                 const result = await model.generateContent(
                     `You are an expert at writing text-to-video prompts.
                     Expand the following description into a detailed, cinematic video prompt.

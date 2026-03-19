@@ -7,22 +7,21 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useHarvest } from "@/context/HarvestContext";
 import { supabase } from "@/lib/supabase";
 import { postService, ContentPolicyError, assertContentPolicy } from "@/lib/posts";
+import NavigationGuard from "@/components/NavigationGuard";
+
 
 const mockOptions = [
     {
         caption: "🍅 Beautiful Heirloom Tomatoes! \n\nWe just harvested a fresh batch of these sun-ripened beauties. Perfect for your summer salads. Caught the first of the season this morning!",
         hashtags: "#FarmLife #LocalFood #SupportLocal #FarmFresh #HeirloomTomatoes",
-        recommended: true
+        recommended: true,
+        platform: "facebook"
     },
     {
         caption: "Look at these colors! 🌈 Our heirloom tomatoes are finally here. Come by the farm stand today and grab some before they're gone.",
         hashtags: "#OrganicFarming #TomatoSeason #FarmHarvest #FreshFromTheFarm",
-        recommended: false
-    },
-    {
-        caption: "Nothing beats a sun-warmed tomato straight from the vine. ☀️ Freshly harvested today!",
-        hashtags: "#FarmerMarket #HomeGrown #LocalProduce #SummerHarvest",
-        recommended: false
+        recommended: false,
+        platform: "linkedin"
     }
 ];
 
@@ -31,19 +30,15 @@ function HarvestContentInner() {
     const searchParams = useSearchParams();
     const mode = searchParams.get("mode");
     const postId = searchParams.get("postId");
-    const { formData: harvestData, photos, setPhotos, videos, clearHarvest } = useHarvest();
+    const { formData: harvestData, photos, setPhotos, videos, setVideos, clearHarvest } = useHarvest();
     const [options, setOptions] = useState<any[]>(mockOptions);
     const [usage, setUsage] = useState<any>(null);
     const [source, setSource] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [isGenerating, setIsGenerating] = useState(true);
+    const [isGenerating, setIsGenerating] = useState(mode !== 'edit' && mode !== 'manual');
     const [selectedOption, setSelectedOption] = useState(0);
     const [retryCount, setRetryCount] = useState(0);
 
-    const [showPublishModal, setShowPublishModal] = useState(false);
-    const [postPersonal, setPostPersonal] = useState(true);
-    const [postBusiness, setPostBusiness] = useState(false);
-    const [postLinkedIn, setPostLinkedIn] = useState(false);
     const [isPublishing, setIsPublishing] = useState(false);
     const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
     const [isEditing, setIsEditing] = useState<number | null>(null);
@@ -51,11 +46,17 @@ function HarvestContentInner() {
     const [editedHashtags, setEditedHashtags] = useState("");
 
     // New View States
-    const [view, setView] = useState<"review" | "preview">("review");
-    const [scheduleType, setScheduleType] = useState<"now" | "later" | "personal" | "instagram" | "business" | "linkedin">("personal");
+    const [view, setView] = useState<"review" | "preview">("preview");
+    const [selectedPlatforms, setSelectedPlatforms] = useState({
+        facebook_personal: true,
+        facebook_business: true,
+        linkedin: true
+    });
+    const [scheduleType, setScheduleType] = useState<"now" | "later">("now");
     const [isPreviewEditing, setIsPreviewEditing] = useState(false);
     const [showSuccessModal, setShowSuccessModal] = useState<{ platform: string; message: string } | null>(null);
-
+    const [platformForPreview, setPlatformForPreview] = useState<"facebook" | "linkedin">("facebook");
+    const [publishProgress, setPublishProgress] = useState(0);
 
     const handleCopy = (e: React.MouseEvent | null, text: string, idx: number | null) => {
         if (e) e.stopPropagation();
@@ -66,42 +67,68 @@ function HarvestContentInner() {
         }
     };
 
-    // Persists the selected caption to public.posts.
-    // Phase A content-policy hard-block runs before any DB write.
-    // Other errors are non-blocking: logged but never interrupt the publish UX.
     const savePostToDB = async (status: 'draft' | 'published', platform: string) => {
-        // Evaluate all persisted text fields before touching the DB.
-        const option = options[selectedOption];
+        const activeOption = options.find(o => o.platform === (platform === 'linkedin' ? 'linkedin' : 'facebook')) || options[0];
         const title = [harvestData.variety, harvestData.produceType]
             .filter(Boolean).join(' ') || 'Harvest Post';
+        if (!activeOption) return;
 
-        // Hard-block: throws ContentPolicyError if any field contains clearly
-        // disallowed content. Must remain OUTSIDE the try/catch below so the
-        // error propagates to callers instead of being silently swallowed.
-        assertContentPolicy({ title, content: option.caption, hashtags: option.hashtags });
+        assertContentPolicy({ title, content: activeOption.caption, hashtags: activeOption.hashtags });
 
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
-            await postService.createPost({
+            
+            const postPayload = {
                 user_id: user.id,
                 title,
-                content: option.caption,
-                hashtags: option.hashtags,
-                template_type: harvestData.contentLength || 'short',
+                content: activeOption.caption,
+                hashtags: activeOption.hashtags,
+                template_type: 'harvest',
                 status,
                 metadata: {
                     imageUrl: photos.length > 0 ? photos[0] : null,
-                    platform,
+                    videoUrl: videos.length > 0 ? videos[0] : null,
+                    all_options: options,
+                    platform, // Specific platform for this published entry
                     produceType: harvestData.produceType,
                     quantity: harvestData.quantity,
                     unit: harvestData.unit,
+                    variety: harvestData.variety,
+                    contentLength: harvestData.contentLength,
                 },
-            });
+            };
+
+            // LOGIC: 
+            // 1. If we are saving a 'draft' and we are in 'edit' mode, UPDATE the existing draft.
+            // 2. If we are 'published', ALWAYS create a NEW row for that specific platform's history.
+            if (status === 'draft' && mode === 'edit' && postId) {
+                await postService.updatePost(postId, postPayload);
+            } else {
+                await postService.createPost(postPayload);
+            }
         } catch (err) {
             console.error('Failed to save post to database:', err);
         }
     };
+
+    /**
+     * CLEANUP: If we were editing a draft and successfully published it to at least one place,
+     * we should remove the original draft so it doesn't clutter the 'Drafts' tab.
+     */
+    const cleanupOriginalDraft = async () => {
+        if (mode === 'edit' && postId) {
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    await supabase.from('posts').delete().eq('id', postId).eq('user_id', user.id);
+                }
+            } catch (err) {
+                console.error("Cleanup draft error:", err);
+            }
+        }
+    };
+   
 
     const [profile, setProfile] = useState<any>(null);
 
@@ -161,34 +188,7 @@ function HarvestContentInner() {
 
             const data = await response.json();
             if (data.options && Array.isArray(data.options)) {
-                // Enforce exactly ONE recommended option
-                let foundRecommended = false;
-                const validatedOptions = data.options.map((opt: any, index: number) => {
-                    let isRecommended = opt.recommended === true;
-                    // If we already found one, force others to false
-                    if (foundRecommended) {
-                        isRecommended = false;
-                    } else if (isRecommended) {
-                        foundRecommended = true;
-                    }
-                    // If we reached the end and found none, force the first one
-                    if (index === data.options.length - 1 && !foundRecommended) {
-                        if (index === 0) isRecommended = true; // edge case
-                    }
-                    return { ...opt, recommended: isRecommended };
-                });
-
-                // Final safety check if they were all false
-                if (!foundRecommended && validatedOptions.length > 0) {
-                    validatedOptions[0].recommended = true;
-                }
-
-                // Sort array to guarantee the recommended option is always on top
-                validatedOptions.sort((a: any, b: any) => Number(b.recommended) - Number(a.recommended));
-
-                setOptions(validatedOptions);
-                // Also reset selected option so the top one is selected by default
-                setSelectedOption(0);
+                setOptions(data.options);
                 setUsage(data.usage);
                 setSource(data.source);
             } else {
@@ -203,7 +203,7 @@ function HarvestContentInner() {
     };
 
     useEffect(() => {
-        if (mode === "edit") {
+        if (mode === "edit" || mode === "clone") {
             if (!postId) { setIsGenerating(false); return; }
             (async () => {
                 try {
@@ -219,18 +219,26 @@ function HarvestContentInner() {
 
                     if (error || !post) { setIsGenerating(false); return; }
 
-                    const editOption = {
-                        caption: post.content ?? "",
-                        hashtags: post.hashtags ?? "",
-                        recommended: true,
-                    };
-                    setOptions([editOption]);
-                    setSelectedOption(0);
-                    setEditedCaption(editOption.caption);
-                    setEditedHashtags(editOption.hashtags);
+                    if (post.metadata?.all_options && Array.isArray(post.metadata.all_options)) {
+                        setOptions(post.metadata.all_options);
+                        // If it's a bundle, we might want to ensure editedCaption is the one for the current platform
+                        const initialOpt = post.metadata.all_options.find((o: any) => o.platform === platformForPreview) || post.metadata.all_options[0];
+                        setEditedCaption(initialOpt.caption);
+                        setEditedHashtags(initialOpt.hashtags);
+                    } else {
+                        const editOption = {
+                            caption: post.content ?? "",
+                            hashtags: post.hashtags ?? "",
+                            recommended: true,
+                            platform: post.metadata?.platform || "facebook"
+                        };
+                        setOptions([editOption]);
+                        setEditedCaption(editOption.caption);
+                        setEditedHashtags(editOption.hashtags);
+                    }
                     if (post.metadata?.imageUrl) setPhotos([post.metadata.imageUrl]);
+                    if (post.metadata?.videoUrl) setVideos([post.metadata.videoUrl]);
                     setView("preview");
-                    setIsPreviewEditing(true);
                 } catch (err) {
                     console.error("Edit mode load error:", err);
                 } finally {
@@ -244,9 +252,10 @@ function HarvestContentInner() {
 
         if (mode === "manual") {
             const manualOption = {
-                caption: "Write your own ...",
+                caption: "Write your own caption ...",
                 hashtags: "#FarmFresh",
-                recommended: true
+                recommended: true,
+                platform: "facebook"
             };
             setOptions([manualOption]);
             setSelectedOption(0);
@@ -261,198 +270,117 @@ function HarvestContentInner() {
         fetchContent();
     }, [harvestData, retryCount, mode, postId, profile]);
 
-    const handleEditStart = (idx: number) => {
-        setIsEditing(idx);
-        setEditedCaption(options[idx].caption);
-        setEditedHashtags(options[idx].hashtags);
-    };
-
-    const handleEditSave = (idx: number) => {
-        const newOptions = [...options];
-        newOptions[idx] = {
-            ...newOptions[idx],
-            caption: editedCaption,
-            hashtags: editedHashtags
-        };
-        setOptions(newOptions);
-        setIsEditing(null);
-    };
-
-    const handleApprove = (action: "post" | "schedule") => {
-        setScheduleType(action === "post" ? "now" : "later");
-        setView("preview");
-    };
-
     const confirmPublish = async () => {
-        const caption = options[selectedOption].caption;
-        const hashtags = options[selectedOption].hashtags;
-        const captionToPost = `${caption}\n\n${hashtags}`;
+        setIsPublishing(true);
+        setPublishProgress(5);
+        const results: string[] = [];
+        
+        const platformsToCount = Object.values(selectedPlatforms).filter(Boolean).length;
+        const perPlatformIncrement = 90 / platformsToCount;
+        let currentProgress = 5;
+
+        const fbOption = options.find(o => o.platform === 'facebook') || options[0];
+        const liOption = options.find(o => o.platform === 'linkedin') || options[0];
+        
         const photoToPost = photos.length > 0 ? photos[0] : null;
         const videoToPost = videos.length > 0 ? videos[0] : null;
 
-        if (scheduleType === "personal" || scheduleType === "instagram") {
-            setIsPublishing(true);
-
-            // 1. Copy to clipboard so user can paste it
-            try {
-                await navigator.clipboard.writeText(captionToPost);
-            } catch (err) {
-                console.error("Clipboard copy failed:", err);
-            }
-
-            // 2. Open Share Dialog
-            if (scheduleType === "personal") {
-                const shareUrl = photoToPost || window.location.origin;
-                const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
-                window.open(fbShareUrl, '_blank', 'width=600,height=500');
-            } else {
-                // Instagram doesn't have a direct 'sharer.php' for web that reliably fills content,
-                // so we point them to the site and they can paste and upload.
-                window.open("https://www.instagram.com/", '_blank');
-            }
-
-            // 3. Persist to DB as draft (post not confirmed published — user completes manually)
-            await savePostToDB('draft', scheduleType);
-
-            // 4. Show handoff confirmation
-            setIsPublishing(false);
-            setShowSuccessModal({
-                platform: scheduleType === 'personal' ? 'facebook_personal' : 'instagram',
-                message: scheduleType === 'personal'
-                    ? 'Caption copied to clipboard. Paste it into Facebook to complete your post.'
-                    : 'Caption copied to clipboard. Paste it into Instagram to complete your post.'
-            });
-            return;
+        // PARALLEL: Trigger Facebook Personal Share first so popup isn't blocked by delays
+        if (selectedPlatforms.facebook_personal) {
+            const captionToPost = `${fbOption.caption}\n\n${fbOption.hashtags}`;
+            navigator.clipboard.writeText(captionToPost);
+            const shareUrl = photoToPost || videoToPost || window.location.origin;
+            const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+            window.open(fbShareUrl, '_blank', 'width=600,height=500');
+            results.push("Facebook Personal");
+            await savePostToDB('draft', 'facebook_personal');
         }
-
-        if (scheduleType === "linkedin") {
-            setIsPublishing(true);
-            try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) throw new Error("Not logged in");
-
-                const res = await fetch("/api/publish-linkedin", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        caption: captionToPost,
-                        imageUrl: photoToPost,
-                        videoUrl: videoToPost,
-                        userId: user.id,
-                    }),
-                });
-
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || "Failed to publish to LinkedIn");
-
-                // Persist to DB after confirmed API success
-                await savePostToDB('published', 'linkedin');
-
-                setIsPublishing(false);
-                setShowPublishModal(false);
-                setShowSuccessModal({ platform: "linkedin", message: "Your harvest update is now live on LinkedIn!" });
-            } catch (err: any) {
-                setIsPublishing(false);
-                console.error("LinkedIn publish error:", err);
-                if (err.message.includes("not connected") || err.message.includes("LinkedIn not connected")) {
-                    alert("LinkedIn is not connected. Please go to Settings to connect your LinkedIn account.");
-                } else {
-                    alert(`Error publishing to LinkedIn: ${err.message}`);
-                }
-            }
-            return;
-        }
-
-        if (scheduleType === "business") {
-            setIsPublishing(true);
-            try {
-                const { data: { user } } = await supabase.auth.getUser();
-
-                const res = await fetch("/api/publish-facebook", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        caption: captionToPost,
-                        imageUrl: photoToPost,
-                        postBusiness: true,
-                        postPersonal: false,
-                        userId: user?.id
-                    })
-                });
-
-                const data = await res.json();
-
-                if (!res.ok) {
-                    throw new Error(data.error || data.details || "Failed to publish to Facebook");
-                }
-
-                // Persist to DB after confirmed API success
-                await savePostToDB('published', 'facebook');
-
-                setShowSuccessModal({ platform: "facebook", message: "Your harvest update is now live on your Facebook Business Page!" });
-                setIsPublishing(false);
-                setShowPublishModal(false);
-                return;
-            } catch (err: any) {
-                setIsPublishing(false);
-                console.error("Facebook Business publish error:", err);
-                if (err.message.includes("credentials")) {
-                    alert(`⚠️ Missing Facebook API Keys:\n\nTo actually post to your Business Page, you need to add FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN to your .env file.`);
-                } else {
-                    alert(`Error publishing to Facebook: ${err.message}`);
-                }
-                return;
-            }
-        }
-
-        // Logic for other types (if ever enabled)
-        if (!postPersonal && !postBusiness) {
-            alert("Please select at least one destination to publish.");
-            return;
-        }
-
-        setIsPublishing(true);
 
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-
-            const res = await fetch("/api/publish-facebook", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    caption: captionToPost,
-                    imageUrl: photoToPost,
-                    videoUrl: videoToPost,
-                    postBusiness,
-                    postPersonal,
-                    userId: user?.id
-                })
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.error || data.details || "Failed to publish to Facebook");
+            if (selectedPlatforms.linkedin) {
+                setPublishProgress(currentProgress + 2);
+                const captionToPost = `${liOption.caption}\n\n${liOption.hashtags}`;
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    const res = await fetch("/api/publish-linkedin", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            caption: captionToPost,
+                            imageUrl: photoToPost,
+                            videoUrl: videoToPost,
+                            userId: user.id,
+                        }),
+                    });
+                    if (res.ok) {
+                        results.push("LinkedIn");
+                        await savePostToDB('published', 'linkedin');
+                        currentProgress += perPlatformIncrement;
+                        setPublishProgress(currentProgress);
+                    }
+                }
             }
 
-            if (postPersonal) {
-                const fbShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(photoToPost || window.location.href)}&quote=${encodeURIComponent(captionToPost)}`;
-                window.open(fbShareUrl, '_blank', 'width=600,height=400');
+            if (selectedPlatforms.facebook_business) {
+                const captionToPost = `${fbOption.caption}\n\n${fbOption.hashtags}`;
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    const res = await fetch("/api/publish-facebook", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            caption: captionToPost,
+                            imageUrl: photoToPost,
+                            videoUrl: videoToPost,
+                            postBusiness: true,
+                            postPersonal: false,
+                            userId: user?.id
+                        })
+                    });
+                    if (res.ok) {
+                        results.push("Facebook Page");
+                        await savePostToDB('published', 'facebook');
+                        currentProgress += perPlatformIncrement;
+                        setPublishProgress(currentProgress);
+                    }
+                }
             }
 
-            setIsPublishing(false);
-            setShowPublishModal(false);
-            // Stay on page
-        } catch (err: any) {
-            setIsPublishing(false);
-            console.error("Facebook publish error:", err);
+            // Facebook Personal was handled above at start to avoid blocked popups
 
-            if (err.message.includes("credentials")) {
-                alert(`⚠️ Missing Facebook API Keys:\n\nTo actually post to your Business Page, you need to add FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN to your .env file.`);
-                setShowPublishModal(false);
+            if (results.length > 0) {
+                setPublishProgress(100);
+                setShowSuccessModal({
+                    platform: "multiple",
+                    message: `Success! Posted to: ${results.join(", ")}.`
+                });
+                await cleanupOriginalDraft();
             } else {
-                alert(`Error publishing to Facebook: ${err.message}`);
+                alert("No platforms selected for publishing.");
             }
+        } catch (err: any) {
+            console.error("Multi-publish error:", err);
+            alert("An error occurred during publishing.");
+        } finally {
+            setTimeout(() => {
+                setIsPublishing(false);
+                setPublishProgress(0);
+            }, 500);
+        }
+    };
+    const handleSaveDraft = async () => {
+        setIsPublishing(true);
+        try {
+            await savePostToDB('draft', 'none');
+            setShowSuccessModal({
+                platform: "draft",
+                message: "Post saved as draft! You can find it in 'My Posts' later."
+            });
+        } catch (err) {
+            console.error("Save draft error:", err);
+            alert("Failed to save draft.");
+        } finally {
+            setIsPublishing(false);
         }
     };
 
@@ -463,23 +391,8 @@ function HarvestContentInner() {
                 <div className="max-w-[1200px] mx-auto py-20 px-5 text-center">
                     <div className="card max-w-lg mx-auto py-16">
                         <div className="w-16 h-16 border-4 border-gray-100 border-t-harvest-green rounded-full animate-spin mx-auto mb-8"></div>
-                        <h2 className="text-3xl font-bold mb-3">Creating Your Content...</h2>
-                        <p className="text-gray-600">Our AI is drafting high-engagement captions for your harvest</p>
-
-                        <div className="mt-10 space-y-4 max-w-sm mx-auto text-left">
-                            <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
-                                <span className="text-2xl">✍️</span>
-                                <span className="text-sm text-gray-700">Writing catchy captions</span>
-                            </div>
-                            <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
-                                <span className="text-2xl">🏷️</span>
-                                <span className="text-sm text-gray-700">Selecting optimal hashtags</span>
-                            </div>
-                            <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
-                                <span className="text-2xl">📈</span>
-                                <span className="text-sm text-gray-700">Optimizing for engagement</span>
-                            </div>
-                        </div>
+                        <h2 className="text-3xl font-bold mb-3">{mode === 'edit' ? 'Restoring Your Draft...' : 'Creating Your Harvest Captions...'}</h2>
+                        <p className="text-gray-600">{mode === 'edit' ? 'Bringing back your masterpiece' : 'Our AI is drafting high-engagement captions'}</p>
                     </div>
                 </div>
             </main>
@@ -487,28 +400,33 @@ function HarvestContentInner() {
     }
 
     if (view === "preview") {
-        const option = options[selectedOption];
+        const option = options.find(o => o.platform === platformForPreview) || options[0];
+        if (!option) return null;
         return (
             <main className="bg-[#f8faf8] min-h-screen pb-20">
                 <Header />
+                <NavigationGuard onSaveDraft={handleSaveDraft} showSaveOption />
+
                 <div className="max-w-[800px] mx-auto py-10 px-5">
-                    {/* Header with Edit/Back */}
                     <div className="flex justify-between items-center mb-8">
                         <h1 className="text-2xl font-bold text-gray-700">Preview Your Post</h1>
                         <div className="flex gap-3">
                             <button
                                 onClick={() => {
                                     if (isPreviewEditing) {
+                                        const idx = options.findIndex(o => o.platform === platformForPreview);
+                                        const useIdx = idx !== -1 ? idx : 0;
                                         const newOptions = [...options];
-                                        newOptions[selectedOption] = {
-                                            ...newOptions[selectedOption],
+                                        newOptions[useIdx] = {
+                                            ...newOptions[useIdx],
                                             caption: editedCaption,
                                             hashtags: editedHashtags
                                         };
                                         setOptions(newOptions);
                                     } else {
-                                        setEditedCaption(option.caption);
-                                        setEditedHashtags(option.hashtags);
+                                        const opt = options.find(o => o.platform === platformForPreview) || options[0];
+                                        setEditedCaption(opt.caption);
+                                        setEditedHashtags(opt.hashtags);
                                     }
                                     setIsPreviewEditing(!isPreviewEditing);
                                 }}
@@ -518,7 +436,7 @@ function HarvestContentInner() {
                                 {isPreviewEditing ? "Save Changes" : "Edit"}
                             </button>
                             <button
-                                onClick={() => mode === "manual" ? router.push("/create/harvest") : setView("review")}
+                                onClick={() => router.push("/create/harvest")}
                                 className="px-6 py-2 bg-white border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-50 transition-all shadow-sm"
                             >
                                 ← Back
@@ -527,31 +445,53 @@ function HarvestContentInner() {
                     </div>
 
                     <div className="space-y-8">
-                        {/* Platform Toggles */}
                         <div className="space-y-3">
-                            <p className="text-sm font-bold text-gray-500 ml-1">Publishing to:</p>
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={() => setPostBusiness(!postBusiness)}
-                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${postBusiness ? 'bg-blue-50 text-blue-600 border-2 border-blue-200' : 'bg-white text-gray-400 border border-gray-200'}`}
-                                >
-                                    <span className="text-blue-500">📘</span> Facebook
+                            <p className="text-sm font-bold text-gray-500 ml-1">Previewing for:</p>
+                            <div className="flex gap-3 flex-wrap">
+                                {options.map((opt, i) => {
+                                    const platform = opt.platform || 'unknown';
+                                    const label = platform.charAt(0).toUpperCase() + platform.slice(1);
+                                    const isFB = platform === 'facebook';
+                                    const isLI = platform === 'linkedin';
+                                    
+                                    return (
+                                        <button
+                                            key={opt.platform || i}
+                                            onClick={() => setPlatformForPreview(opt.platform)}
+                                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${platformForPreview === opt.platform ? 'bg-blue-50 text-blue-600 border-2 border-blue-200' : 'bg-white text-gray-400 border border-gray-200 hover:bg-gray-50'}`}
+                                        >
+                                            {isFB ? (
+                                                <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
+                                                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                                                </svg>
+                                            ) : isLI ? (
+                                                <svg className="w-4 h-4 text-[#0077b5]" fill="currentColor" viewBox="0 0 24 24">
+                                                    <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.238 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
+                                                </svg>
+                                            ) : (
+                                                <span>📱</span>
+                                            )}
+                                            {label}
+                                        </button>
+                                    );
+                                })}
+                                <button className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gray-50 text-gray-400 border border-gray-200 opacity-60 cursor-not-allowed group" disabled title="Coming Soon">
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M12 2.163c3.204 0 3.584.012 4.85.07 1.366.062 2.633.332 3.608 1.308.975.975 1.245 2.242 1.308 3.608.058 1.266.07 1.646.07 4.85s-.012 3.584-.07 4.85c-.062 1.366-.332 2.633-1.308 3.608-.975.975-2.242 1.245-3.608 1.308-1.266.058-1.646.07-4.85.07s-3.584-.012-4.85-.07c-1.366-.062-2.633-.332-3.608-1.308-.975-.975-1.245-2.242-1.308-3.608-.058-1.266-.07-1.646-.07-4.85s.012-3.584.07-4.85c.062-1.366.332-2.633 1.308-3.608.975-.975 2.242-.332 3.608-1.308 1.266-.058 1.646-.07 4.85-.07zm0-2.163c-3.259 0-3.667.014-4.947.072-1.277.058-2.148.261-2.911.558-.788.306-1.457.715-2.123 1.381s-1.075 1.335-1.381 2.123c-.297.763-.5 1.634-.558 2.911-.058 1.28-.072 1.688-.072 4.947s.014 3.667.072 4.947c.058 1.277.261 2.148.558 2.911.306.788.715 1.457 1.381 2.123s1.335 1.075 2.123 1.381c.763.297 1.634.5 2.911.558 1.28.058 1.688.072 4.947.072s3.667-.014 4.947-.072c1.277-.058 2.148-.261 2.911-.558.788-.306 1.457-.715 2.123-1.381s1.075-1.335 1.381-2.123c.297-.763.5-1.634.558-2.911.058-1.28.072-1.688.072-4.947s-.014-3.667-.072-4.947c-.058-1.277-.261-2.148-.558-2.911-.306-.788-.715-1.457-1.381-2.123s-1.335-1.075-2.123-1.381c-.763-.297-1.634-.5-2.911-.558-1.28-.058-1.688-.072-4.947-.072zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.162 6.162 6.162 6.162-2.759 6.162-6.162-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.791-4-4s1.791-4 4-4 4 1.791 4 4-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+                                    </svg>
+                                    Instagram
                                 </button>
-                                <button
-                                    onClick={() => setPostLinkedIn(!postLinkedIn)}
-                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${postLinkedIn ? 'bg-blue-100 text-blue-700 border-2 border-blue-300' : 'bg-white text-gray-400 border border-gray-200'}`}
-                                >
-                                    <span className="font-black">in</span> LinkedIn
+                                <button className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gray-50 text-gray-400 border border-gray-200 opacity-60 cursor-not-allowed" disabled>
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M19.589 6.686a4.793 4.793 0 0 1-3.77-4.245V2h-3.445v13.672a2.896 2.896 0 0 1-5.201 1.743l-.002-.001.002.001a2.895 2.895 0 0 1 3.183-4.51v-3.5a6.329 6.329 0 0 0-5.394 10.692 6.33 6.33 0 0 0 10.857-4.424V8.617a8.13 8.13 0 0 0 5.373 1.934V7.122a4.734 4.734 0 0 1-1.594-.436z"/>
+                                    </svg>
+                                    TikTok
                                 </button>
-                                <button
-                                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gray-50 text-gray-400 border border-gray-200 opacity-60 cursor-not-allowed"
-                                    disabled
-                                >
-                                    <span className="">📸</span>
-                                    <span className="flex flex-col items-start leading-tight">
-                                        <span>Instagram</span>
-                                        <span className="text-[9px] font-medium text-gray-400">Coming soon</span>
-                                    </span>
+                                <button className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gray-50 text-gray-400 border border-gray-200 opacity-60 cursor-not-allowed" disabled>
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M18.901 1.153h3.68l-8.04 9.19 9.457 12.504h-7.406l-5.8-7.584-6.638 7.584H.472l8.6-9.83L-.35 1.153h7.594l5.243 6.932 6.414-6.932zm-1.291 19.497h2.039L6.486 3.24H4.298l13.312 17.41z"/>
+                                    </svg>
+                                    X
                                 </button>
                             </div>
                         </div>
@@ -560,22 +500,10 @@ function HarvestContentInner() {
                         <div className="bg-white rounded-[32px] border border-gray-100 shadow-xl overflow-hidden max-w-[500px] mx-auto">
                             <div className="p-6 pb-4 flex items-center gap-3">
                                 <div className="w-12 h-12 rounded-full bg-[#006633] border-4 border-white shadow-sm flex items-center justify-center overflow-hidden">
-                                    {profile?.farm_logo_url ? (
-                                        <img src={profile.farm_logo_url} alt="Logo" className="w-full h-full object-cover" />
-                                    ) : (
-                                        <span className="text-white font-bold text-xl font-serif">UF</span>
-                                    )}
+                                    {profile?.farm_logo_url ? <img src={profile.farm_logo_url} alt="Logo" className="w-full h-full object-cover" /> : <span className="text-white font-bold text-xl font-serif">UF</span>}
                                 </div>
-                                <div>
-                                    <div className="font-black text-[15px] text-gray-900 leading-tight">{profile?.farm_name || "Your Farm"}</div>
-                                    <div className="flex items-center gap-1 text-gray-400 text-[11px] font-bold">
-                                        <span>Just now</span>
-                                        <span>•</span>
-                                        <span className="flex items-center gap-0.5">🌎 Public</span>
-                                    </div>
-                                </div>
+                                <div className="font-black text-[15px] text-gray-900 leading-tight">{profile?.farm_name || "Your Farm"}</div>
                             </div>
-
                             <div className="px-6 pb-6">
                                 {isPreviewEditing ? (
                                     <div className="space-y-4 mb-6">
@@ -584,8 +512,6 @@ function HarvestContentInner() {
                                             onChange={(e) => setEditedCaption(e.target.value)}
                                             className="w-full min-h-[120px] p-4 bg-gray-50 border-2 border-harvest-green rounded-xl outline-none font-medium text-gray-800 text-sm leading-relaxed"
                                             placeholder="Write your caption..."
-                                            autoFocus
-                                            onFocus={(e) => e.currentTarget.select()}
                                         />
                                         <input
                                             type="text"
@@ -594,35 +520,13 @@ function HarvestContentInner() {
                                             className="w-full p-3 bg-gray-50 border-2 border-harvest-green rounded-xl outline-none font-bold text-harvest-green text-xs"
                                             placeholder="#hashtags"
                                         />
-                                        <button
-                                            onClick={() => {
-                                                const newOptions = [...options];
-                                                newOptions[selectedOption] = {
-                                                    ...newOptions[selectedOption],
-                                                    caption: editedCaption,
-                                                    hashtags: editedHashtags
-                                                };
-                                                setOptions(newOptions);
-                                                setIsPreviewEditing(false);
-                                            }}
-                                            className="w-full py-2 bg-harvest-green text-white font-bold rounded-lg text-xs"
-                                        >
-                                            Done Editing
-                                        </button>
                                     </div>
                                 ) : (
                                     <>
-                                        <p className="text-gray-800 text-[14px] leading-relaxed mb-4 whitespace-pre-wrap">
-                                            {option.caption}
-                                        </p>
-                                        <div className="flex flex-wrap gap-1.5 mb-6">
-                                            {option.hashtags.split(" ").map((tag: string) => (
-                                                <span key={tag} className="text-blue-600 font-medium text-[13px] hover:underline cursor-pointer">{tag}</span>
-                                            ))}
-                                        </div>
+                                        <p className="text-gray-800 text-[14px] leading-relaxed mb-4 whitespace-pre-wrap">{option.caption}</p>
+                                        <div className="text-blue-600 font-medium text-[13px] mb-6">{option.hashtags}</div>
                                     </>
                                 )}
-
                                 {photos.length > 0 ? (
                                     <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-inner bg-gray-50 aspect-square">
                                         <img src={photos[0]} alt="Harvest" className="w-full h-full object-cover" />
@@ -635,637 +539,182 @@ function HarvestContentInner() {
                             </div>
                         </div>
 
-                        {/* Publishing Schedule Section */}
-                        <div className="bg-[#f2f9f5] rounded-[24px] p-8 border border-[#e0ede5] space-y-6">
-                            <div className="flex items-center gap-2">
-                                <span className="text-xl">🗓️</span>
-                                <h3 className="font-black text-[#2d5a3e] tracking-tight">Publishing Schedule</h3>
+                        <div className="bg-[#f2f9f5] rounded-[24px] p-6 border border-[#e0ede5]">
+                            <h3 className="font-black text-[#2d5a3e] tracking-tight text-lg mb-4">Select Destinations</h3>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+                                <label className={`flex items-center gap-3 p-4 rounded-xl cursor-pointer transition-all border-2 ${selectedPlatforms.facebook_personal ? 'bg-white border-harvest-green shadow-sm' : 'bg-white/40 border-transparent hover:bg-white/60'}`}>
+                                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${selectedPlatforms.facebook_personal ? 'bg-harvest-green border-harvest-green' : 'border-gray-300'}`}>
+                                        {selectedPlatforms.facebook_personal && <span className="text-white text-[10px]">✓</span>}
+                                    </div>
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                        <svg className="w-5 h-5 text-blue-600 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                                        </svg>
+                                        <div className="overflow-hidden">
+                                            <span className={`font-bold text-sm block truncate ${selectedPlatforms.facebook_personal ? 'text-gray-900' : 'text-gray-500'}`}>Facebook Personal</span>
+                                            <span className="text-[9px] text-gray-400 uppercase font-bold">Manual Copy</span>
+                                        </div>
+                                    </div>
+                                    <input type="checkbox" className="hidden" checked={selectedPlatforms.facebook_personal} onChange={() => setSelectedPlatforms(prev => ({ ...prev, facebook_personal: !prev.facebook_personal }))} />
+                                </label>
+
+                                <label className={`flex items-center gap-3 p-4 rounded-xl cursor-pointer transition-all border-2 ${selectedPlatforms.facebook_business ? 'bg-white border-harvest-green shadow-sm' : 'bg-white/40 border-transparent hover:bg-white/60'}`}>
+                                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${selectedPlatforms.facebook_business ? 'bg-harvest-green border-harvest-green' : 'border-gray-300'}`}>
+                                        {selectedPlatforms.facebook_business && <span className="text-white text-[10px]">✓</span>}
+                                    </div>
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                        <svg className="w-5 h-5 text-blue-600 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                                        </svg>
+                                        <div className="overflow-hidden">
+                                            <span className={`font-bold text-sm block truncate ${selectedPlatforms.facebook_business ? 'text-gray-900' : 'text-gray-500'}`}>Facebook Business</span>
+                                            <span className="text-[9px] text-gray-400 uppercase font-bold">Direct API</span>
+                                        </div>
+                                    </div>
+                                    <input type="checkbox" className="hidden" checked={selectedPlatforms.facebook_business} onChange={() => setSelectedPlatforms(prev => ({ ...prev, facebook_business: !prev.facebook_business }))} />
+                                </label>
+
+                                <label className={`flex items-center gap-3 p-4 rounded-xl cursor-pointer transition-all border-2 ${selectedPlatforms.linkedin ? 'bg-white border-harvest-green shadow-sm' : 'bg-white/40 border-transparent hover:bg-white/60'}`}>
+                                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${selectedPlatforms.linkedin ? 'bg-harvest-green border-harvest-green' : 'border-gray-300'}`}>
+                                        {selectedPlatforms.linkedin && <span className="text-white text-[10px]">✓</span>}
+                                    </div>
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                        <svg className="w-5 h-5 text-[#0077b5] shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.238 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
+                                        </svg>
+                                        <div className="overflow-hidden">
+                                            <span className={`font-bold text-sm block truncate ${selectedPlatforms.linkedin ? 'text-gray-900' : 'text-gray-500'}`}>LinkedIn Profile</span>
+                                            <span className="text-[9px] text-gray-400 uppercase font-bold">Direct API</span>
+                                        </div>
+                                    </div>
+                                    <input type="checkbox" className="hidden" checked={selectedPlatforms.linkedin} onChange={() => setSelectedPlatforms(prev => ({ ...prev, linkedin: !prev.linkedin }))} />
+                                </label>
                             </div>
 
-                            <div className="space-y-3">
-                                <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'personal' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${scheduleType === 'personal' ? 'border-[#006633]' : 'border-gray-300'}`}>
-                                            {scheduleType === 'personal' && <div className="w-3 h-3 bg-[#006633] rounded-full"></div>}
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className={`font-bold ${scheduleType === 'personal' ? 'text-gray-900' : 'text-gray-500'}`}>Share to Facebook Personal Page</span>
-                                            <span className="text-[10px] text-gray-400 font-medium tracking-tight">Opens Facebook dialog & copies content to clipboard</span>
-                                        </div>
+                            <div className="pt-4 border-t border-harvest-green/10">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-[#2d5a3e]/60 mb-3">Available Soon:</p>
+                                <div className="flex flex-wrap gap-2">
+                                    <div className="px-3 py-1.5 bg-white/30 rounded-lg text-xs font-bold text-gray-500 flex items-center gap-2 border border-transparent">
+                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M12 2.163c3.204 0 3.584.012 4.85.07 1.366.062 2.633.332 3.608 1.308.975.975 1.245 2.242 1.308 3.608.058 1.266.07 1.646.07 4.85s-.012 3.584-.07 4.85c-.062 1.366-.332 2.633-1.308 3.608-.975.975-2.242 1.245-3.608 1.308-1.266.058-1.646.07-4.85.07s-3.584-.012-4.85-.07c-1.366-.062-2.633-.332-3.608-1.308-.975-.975-1.245-2.242-1.308-3.608-.058-1.266-.07-1.646-.07-4.85s.012-3.584.07-4.85c.062-1.366.332-2.633 1.308-3.608.975-.975 2.242-.332 3.608-1.308 1.266-.058 1.646-.07 4.85-.07zm0-2.163c-3.259 0-3.667.014-4.947.072-1.277.058-2.148.261-2.911.558-.788.306-1.457.715-2.123 1.381s-1.075 1.335-1.381 2.123c-.297.763-.5 1.634-.558 2.911-.058 1.28-.072 1.688-.072 4.947s.014 3.667.072 4.947c.058 1.277.261 2.148.558 2.911.306.788.715 1.457 1.381 2.123s1.335 1.075 2.123 1.381c.763.297 1.634.5 2.911.558 1.28.058 1.688.072 4.947.072s3.667-.014 4.947-.072c1.277-.058 2.148-.261 2.911-.558.788-.306 1.457-.715 2.123-1.381s1.075-1.335 1.381-2.123c.297-.763.5-1.634.558-2.911.058-1.28.072-1.688.072-4.947s-.014-3.667-.072-4.947c-.058-1.277-.261-2.148-.558-2.911-.306-.788-.715-1.457-1.381-2.123s-1.335-1.075-2.123-1.381c-.763-.297-1.634-.5-2.911-.558-1.28-.058-1.688-.072-4.947-.072zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.162 6.162 6.162 6.162-2.759 6.162-6.162-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.791-4-4s1.791-4 4-4 4 1.791 4 4-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+                                        </svg>
+                                        Instagram
+                                        <span className="text-[8px] bg-gray-200 px-1 rounded text-gray-500">SOON</span>
                                     </div>
-                                    <input type="radio" className="hidden" name="schedule" value="personal" checked={scheduleType === 'personal'} onChange={() => setScheduleType('personal')} />
-                                </label>
-
-                                <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'business' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${scheduleType === 'business' ? 'border-[#006633]' : 'border-gray-300'}`}>
-                                            {scheduleType === 'business' && <div className="w-3 h-3 bg-[#006633] rounded-full"></div>}
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className={`font-bold ${scheduleType === 'business' ? 'text-gray-900' : 'text-gray-500'}`}>Publish to Facebook Business Page</span>
-                                            <span className="text-[10px] text-gray-400 font-medium tracking-tight">Directly posts to your connected farm page</span>
-                                        </div>
+                                    <div className="px-3 py-1.5 bg-white/30 rounded-lg text-xs font-bold text-gray-500 flex items-center gap-2 border border-transparent">
+                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M19.589 6.686a4.793 4.793 0 0 1-3.77-4.245V2h-3.445v13.672a2.896 2.896 0 0 1-5.201 1.743l-.002-.001.002.001a2.895 2.895 0 0 1 3.183-4.51v-3.5a6.329 6.329 0 0 0-5.394 10.692 6.33 6.33 0 0 0 10.857-4.424V8.617a8.13 8.13 0 0 0 5.373 1.934V7.122a4.734 4.734 0 0 1-1.594-.436z"/>
+                                        </svg>
+                                        TikTok
+                                        <span className="text-[8px] bg-gray-200 px-1 rounded text-gray-500">SOON</span>
                                     </div>
-                                    <input type="radio" className="hidden" name="schedule" value="business" checked={scheduleType === 'business'} onChange={() => setScheduleType('business')} />
-                                </label>
-
-                                <label className={`flex items-center justify-between p-5 rounded-[20px] cursor-pointer transition-all border-2 ${scheduleType === 'linkedin' ? 'bg-white border-[#006633] shadow-md' : 'bg-transparent border-transparent hover:bg-white/50'}`}>
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${scheduleType === 'linkedin' ? 'border-[#006633]' : 'border-gray-300'}`}>
-                                            {scheduleType === 'linkedin' && <div className="w-3 h-3 bg-[#006633] rounded-full"></div>}
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className={`font-bold ${scheduleType === 'linkedin' ? 'text-gray-900' : 'text-gray-500'}`}>Publish to LinkedIn</span>
-                                            <span className="text-[10px] text-gray-400 font-medium tracking-tight">Posts directly to your LinkedIn profile</span>
-                                        </div>
+                                    <div className="px-3 py-1.5 bg-white/30 rounded-lg text-xs font-bold text-gray-500 flex items-center gap-2 border border-transparent">
+                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M18.901 1.153h3.68l-8.04 9.19 9.457 12.504h-7.406l-5.8-7.584-6.638 7.584H.472l8.6-9.83L-.35 1.153h7.594l5.243 6.932 6.414-6.932zm-1.291 19.497h2.039L6.486 3.24H4.298l13.312 17.41z"/>
+                                        </svg>
+                                        Twitter / X
+                                        <span className="text-[8px] bg-gray-200 px-1 rounded text-gray-500">SOON</span>
                                     </div>
-                                    <input type="radio" className="hidden" name="schedule" checked={scheduleType === 'linkedin'} onChange={() => setScheduleType('linkedin')} />
-                                </label>
-
-                                <label className="flex items-center justify-between p-5 rounded-[20px] transition-all border-2 bg-gray-50/50 border-transparent opacity-50 cursor-not-allowed">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-6 h-6 rounded-full border-2 border-gray-300 flex items-center justify-center" />
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-gray-400">Share to Instagram Feed</span>
-                                            <span className="text-[10px] text-gray-400 font-medium tracking-tight">Coming soon</span>
-                                        </div>
-                                    </div>
-                                    <input type="radio" className="hidden" checked={false} onChange={() => {}} disabled />
-                                </label>
-
-                                <label className="flex items-center justify-between p-5 rounded-[20px] transition-all border-2 bg-gray-50/50 border-transparent opacity-60 cursor-not-allowed">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-6 h-6 rounded-full border-2 border-gray-200 flex items-center justify-center">
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-gray-400">Post Now (Demo Mode)</span>
-                                            <span className="text-[10px] text-orange-500 font-bold uppercase tracking-wider">Coming Soon</span>
-                                        </div>
-                                    </div>
-                                    <input type="radio" className="hidden" checked={false} onChange={() => {}} disabled />
-                                </label>
-
-                                <label className="flex items-center justify-between p-5 rounded-[20px] transition-all border-2 bg-gray-50/50 border-transparent opacity-60 cursor-not-allowed">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-6 h-6 rounded-full border-2 border-gray-200 flex items-center justify-center">
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-gray-400">Schedule for Later</span>
-                                            <span className="text-[10px] text-orange-500 font-bold uppercase tracking-wider">Coming Soon</span>
-                                        </div>
-                                    </div>
-                                    <input type="radio" className="hidden" checked={false} onChange={() => {}} disabled />
-                                </label>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Final Publish Button */}
-                        <button
-                            onClick={confirmPublish}
-                            disabled={isPublishing}
-                            className="w-full bg-[#6a8b75] hover:bg-[#5a7b65] text-white font-bold py-6 rounded-2xl shadow-xl shadow-green-900/10 flex items-center justify-center gap-3 transition-all text-xl"
-                        >
-                            {isPublishing ? (
-                                <>
-                                    <div className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                    {(scheduleType === 'personal' || scheduleType === 'instagram') ? 'Opening...' : 'Publishing...'}
-                                </>
-                            ) : scheduleType === 'personal' ? (
-                                <><span>📋</span> Copy Caption &amp; Open Facebook</>
-                            ) : scheduleType === 'instagram' ? (
-                                <><span>📋</span> Copy Caption &amp; Open Instagram</>
-                            ) : (
-                                <><span>🚀</span> Publish Post</>
-                            )}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={async () => {
-                                try {
-                                    await savePostToDB('draft', 'none');
-                                    router.push('/recent');
-                                } catch (err) {
-                                    alert(err instanceof ContentPolicyError
-                                        ? 'This post contains disallowed content and cannot be saved.'
-                                        : 'Failed to save draft. Please try again.');
-                                }
-                            }}
-                            className="w-full text-center text-gray-400 hover:text-harvest-green font-bold text-sm transition-colors py-3"
-                        >
-                            Save as Draft
-                        </button>
+                        <div className="space-y-4">
+                            <button
+                                onClick={confirmPublish}
+                                disabled={isPublishing || (!selectedPlatforms.facebook_personal && !selectedPlatforms.facebook_business && !selectedPlatforms.linkedin)}
+                                className={`group relative w-full h-20 rounded-2xl shadow-xl overflow-hidden transition-all active:scale-[0.98] ${isPublishing ? 'bg-[#e7f3ea]' : 'bg-[#6a8b75] hover:bg-[#5a7b65]'}`}
+                            >
+                                {isPublishing ? (
+                                    <>
+                                        {/* Dynamic Progress Fill */}
+                                        <div 
+                                            className="absolute left-0 top-0 h-full bg-harvest-green transition-all duration-700 ease-out"
+                                            style={{ width: `${publishProgress}%` }}
+                                        />
+                                        
+                                        {/* Glossy Overlay */}
+                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer" />
+
+                                        {/* Status Content */}
+                                        <div className="relative w-full h-full flex items-center justify-center gap-4 text-white">
+                                            <div className="relative">
+                                                <div className="w-10 h-10 rounded-full border-4 border-white/20"></div>
+                                                <div className="absolute inset-0 rounded-full border-t-4 border-white animate-spin"></div>
+                                                <span className="absolute inset-0 flex items-center justify-center text-xs">🌱</span>
+                                            </div>
+                                            <div className="flex flex-col items-start leading-none">
+                                                <span className="font-black text-xl tracking-tight">Publishing Everywhere...</span>
+                                                <span className="text-[10px] font-bold opacity-80 uppercase tracking-widest mt-1">{Math.round(publishProgress)}% Complete</span>
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <span className="text-white font-black text-xl flex items-center justify-center gap-3">
+                                        🚀 Publish Everywhere Now
+                                    </span>
+                                )}
+                            </button>
+
+                            <button
+                                onClick={handleSaveDraft}
+                                disabled={isPublishing}
+                                className="w-full bg-white border-2 border-[#6a8b75] text-[#6a8b75] hover:bg-green-50 font-bold py-4 rounded-2xl shadow-sm flex items-center justify-center gap-2 transition-all"
+                            >
+                                <span className="text-xl">📂</span> Save as Draft
+                            </button>
+                        </div>
+
+                        <div className="mt-8 pt-8 border-t border-gray-100">
+                             <div className="flex items-center justify-between p-6 rounded-[24px] bg-orange-50/50 border-2 border-orange-100/50 opacity-80 cursor-not-allowed transition-all hover:bg-orange-50">
+                                <div className="flex items-center gap-5">
+                                    <div className="w-14 h-14 rounded-2xl bg-white shadow-sm flex items-center justify-center text-2xl">⏰</div>
+                                    <div className="flex flex-col text-left">
+                                        <span className="font-bold text-orange-400 uppercase tracking-widest text-[10px] mb-0.5">Premium Feature</span>
+                                        <span className="font-black text-gray-700 text-lg">Schedule for Later</span>
+                                        <span className="text-[11px] text-orange-500 font-bold flex items-center gap-1.5">
+                                            <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></span>
+                                            COMING SOON
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="px-4 py-1.5 bg-white rounded-full border border-orange-100 text-[10px] font-black text-orange-400 italic">UPGRADE</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                {/* Success Modal (Preview View) */}
                 {showSuccessModal && (
-                    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-5 backdrop-blur-sm" style={{ animation: 'fadeIn 0.3s ease-out' }}>
-                        <div className="bg-white rounded-[40px] max-w-sm w-full overflow-hidden shadow-2xl" style={{ animation: 'scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
-                            <div className="relative p-10 text-center overflow-hidden">
-                                {showSuccessModal.platform !== 'facebook_personal' && showSuccessModal.platform !== 'instagram' && (
-                                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                                    {[...Array(12)].map((_, i) => (
-                                        <div
-                                            key={i}
-                                            className="absolute rounded-full"
-                                            style={{
-                                                width: `${6 + Math.random() * 8}px`,
-                                                height: `${6 + Math.random() * 8}px`,
-                                                background: ['#0a66c2', '#006633', '#22c55e', '#3b82f6', '#f59e0b', '#ec4899'][i % 6],
-                                                left: `${10 + Math.random() * 80}%`,
-                                                top: '-10%',
-                                                opacity: 0.7,
-                                                animation: `confettiFall ${1.5 + Math.random() * 2}s ease-out ${Math.random() * 0.5}s forwards`,
-                                            }}
-                                        />
-                                    ))}
-                                </div>
-                                )}
-                                <div className={`w-24 h-24 mx-auto mb-8 rounded-[28px] flex items-center justify-center text-white text-5xl shadow-xl ${showSuccessModal.platform === 'linkedin'
-                                    ? 'bg-gradient-to-br from-[#0a66c2] to-[#004182] shadow-[#0a66c2]/30'
-                                    : showSuccessModal.platform === 'facebook'
-                                        ? 'bg-gradient-to-br from-[#1877f2] to-[#0d47a1] shadow-blue-600/30'
-                                        : 'bg-gradient-to-br from-[#006633] to-[#004d26] shadow-green-900/30'
-                                    }`} style={{ animation: 'bounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both' }}>
-                                    {showSuccessModal.platform === 'linkedin' ? (
-                                        <span style={{ fontFamily: 'serif', fontWeight: 900 }}>in</span>
-                                    ) : showSuccessModal.platform === 'facebook' ? (
-                                        <span style={{ fontWeight: 900 }}>f</span>
-                                    ) : (
-                                        <span>✓</span>
-                                    )}
-                                </div>
-                                <div className="absolute top-[52px] left-1/2 -translate-x-1/2 w-28 h-28 rounded-[32px] border-4 opacity-20" style={{
-                                    borderColor: showSuccessModal.platform === 'linkedin' ? '#0a66c2' : showSuccessModal.platform === 'facebook' ? '#1877f2' : '#006633',
-                                    animation: 'ringPulse 2s ease-in-out infinite'
-                                }} />
-                                <h3 className="text-2xl font-black text-gray-900 tracking-tight mb-2" style={{ animation: 'slideUp 0.5s ease-out 0.3s both' }}>
-                                    {(showSuccessModal.platform === 'facebook_personal' || showSuccessModal.platform === 'instagram') ? 'Ready to Share! ✓' : 'Published Successfully! 🎉'}
-                                </h3>
-                                <p className="text-gray-500 text-sm leading-relaxed mb-8" style={{ animation: 'slideUp 0.5s ease-out 0.4s both' }}>
-                                    {showSuccessModal.message}
-                                </p>
-                                <div className="flex flex-col gap-3" style={{ animation: 'slideUp 0.5s ease-out 0.5s both' }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => router.push('/dashboard')}
-                                        className={`w-full py-4 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 ${showSuccessModal.platform === 'linkedin'
-                                            ? 'bg-[#0a66c2] hover:bg-[#004182] shadow-[#0a66c2]/30'
-                                            : showSuccessModal.platform === 'facebook'
-                                                ? 'bg-[#1877f2] hover:bg-[#0d47a1] shadow-blue-600/30'
-                                                : 'bg-[#006633] hover:bg-[#004d26] shadow-green-900/30'
-                                            }`}
-                                    >
-                                        {(showSuccessModal.platform === 'facebook_personal' || showSuccessModal.platform === 'instagram') ? 'Got it' : 'Go to Dashboard'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setShowSuccessModal(null);
-                                            router.push('/recent');
-                                        }}
-                                        className="w-full py-3 bg-gray-50 text-gray-500 font-bold rounded-2xl hover:bg-gray-100 transition-all"
-                                    >
-                                        View Post History
-                                    </button>
-                                </div>
-                            </div>
+                    <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-5 backdrop-blur-sm">
+                        <div className="bg-white rounded-[40px] max-w-sm w-full p-10 text-center shadow-2xl">
+                            <div className="w-20 h-20 bg-harvest-green rounded-full flex items-center justify-center text-white text-4xl mx-auto mb-6">✓</div>
+                            <h3 className="text-2xl font-black mb-2">Success!</h3>
+                            <p className="text-gray-600 mb-8">{showSuccessModal.message}</p>
+                            <button 
+                                onClick={() => {
+                                    setShowSuccessModal(null);
+                                    if (showSuccessModal.platform === "draft" || showSuccessModal.platform === "multiple") {
+                                        router.push('/recent');
+                                    }
+                                }} 
+                                className="w-full py-4 bg-gray-900 text-white font-bold rounded-2xl"
+                            >
+                                {showSuccessModal.platform === "draft" ? "View My Posts" : "Excellent"}
+                            </button>
                         </div>
-                        <style jsx>{`
-                        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-                        @keyframes scaleIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
-                        @keyframes bounceIn { from { opacity: 0; transform: scale(0.3) rotate(-10deg); } to { opacity: 1; transform: scale(1) rotate(0deg); } }
-                        @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-                        @keyframes ringPulse { 0%, 100% { transform: scale(1); opacity: 0.2; } 50% { transform: scale(1.15); opacity: 0.05; } }
-                        @keyframes confettiFall { 0% { transform: translateY(0) rotate(0deg); opacity: 0.8; } 100% { transform: translateY(400px) rotate(720deg); opacity: 0; } }
-                    `}</style>
                     </div>
                 )}
             </main>
         );
     }
 
-    return (
-        <main>
-            <Header />
-
-            <div className="max-w-[1200px] mx-auto py-10 px-5">
-                <div className="card">
-                    <div className="flex justify-between items-center pb-5 border-b-2 border-gray-100 mb-10">
-                        <h2 className="text-2xl font-bold text-harvest-green">Review Content Options</h2>
-                        <Link href="/create/harvest" className="button-secondary text-sm px-4 py-2">
-                            Back
-                        </Link>
-                    </div>
-
-                    <div className="max-w-4xl mx-auto space-y-8">
-                        {/* Harvest Summary Card with Photos */}
-                        <div className="flex flex-col md:flex-row gap-6">
-                            {harvestData && (
-                                <div className="flex-1 bg-gray-50 border-2 border-gray-100 rounded-2xl p-6 flex flex-wrap gap-8 items-center shadow-sm">
-                                    <div className="flex-1">
-                                        <div className="text-xs font-bold text-harvest-green uppercase tracking-wider mb-2">Harvest Summary</div>
-                                        <h4 className="text-xl font-bold text-gray-800">
-                                            {harvestData.quantity && `${harvestData.quantity} ${harvestData.unit} of `}
-                                            {harvestData.variety} {harvestData.produceType}
-                                        </h4>
-                                        {harvestData.notes && (
-                                            <p className="text-sm text-gray-500 mt-2 italic line-clamp-2">"{harvestData.notes}"</p>
-                                        )}
-                                    </div>
-                                    <div className="bg-white px-4 py-2 rounded-lg border border-gray-200">
-                                        <div className="text-[10px] text-gray-400 font-bold uppercase">Style</div>
-                                        <div className="text-sm font-bold text-gray-700 capitalize">{harvestData.contentLength} Copy</div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Media Strip */}
-                            {(photos.length > 0 || videos.length > 0) && (
-                                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide md:max-w-[300px]">
-                                    {photos.map((url, i) => (
-                                        <div key={`p${i}`} className="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border-2 border-white shadow-md">
-                                            <img src={url} alt={`Harvest ${i + 1}`} className="w-full h-full object-cover" />
-                                        </div>
-                                    ))}
-                                    {videos.map((url, i) => (
-                                        <div key={`v${i}`} className="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border-2 border-harvest-green shadow-md bg-gray-900 relative">
-                                            <video src={url} className="w-full h-full object-cover" muted />
-                                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                                <span className="text-white text-xl drop-shadow">▶</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="text-center mb-10">
-                            <h3 className="text-3xl font-bold mb-3">Select the best caption</h3>
-                            <p className="text-gray-600 text-lg">Our AI generated a few variations for you</p>
-                        </div>
-
-                        {error && (
-                            <div className="bg-red-50 border-2 border-red-100 rounded-2xl p-6 text-center">
-                                <div className="text-3xl mb-3">⚠️</div>
-                                <h4 className="text-lg font-bold text-red-700 mb-2">Generation Failed</h4>
-                                <p className="text-sm text-red-600 mb-4">You've hit the Gemini free-tier quota (Limit: 20 per minute). Please wait 30 seconds or use the backup templates below.</p>
-                                <button
-                                    onClick={() => setRetryCount(prev => prev + 1)}
-                                    className="bg-red-600 text-white px-6 py-2 rounded-full font-bold text-sm hover:bg-red-700 transition-all"
-                                >
-                                    Try Again
-                                </button>
-                                <p className="text-[10px] text-red-400 mt-4 italic">Using fallback data below for preview</p>
-                            </div>
-                        )}
-
-                        <div className="space-y-6">
-                            {options.map((option, idx) => (
-                                <div
-                                    key={idx}
-                                    onClick={() => setSelectedOption(idx)}
-                                    className={`p-0 border-4 rounded-3xl cursor-pointer transition-all overflow-hidden ${selectedOption === idx
-                                        ? "border-harvest-green bg-white shadow-xl scale-[1.02]"
-                                        : "border-gray-50 bg-white hover:border-harvest-green/30"
-                                        }`}
-                                >
-                                    {/* Social Media Style Header */}
-                                    <div className="p-4 border-b border-gray-50 flex items-center justify-between bg-gray-50/30">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-white border border-gray-100 flex items-center justify-center overflow-hidden shadow-sm">
-                                                {profile?.farm_logo_url ? (
-                                                    <img src={profile.farm_logo_url} alt="Logo" className="w-full h-full object-cover" />
-                                                ) : (
-                                                    <span className="text-xl">🚜</span>
-                                                )}
-                                            </div>
-                                            <div>
-                                                <div className="font-black text-sm text-gray-800">{profile?.farm_name || "Your Farm"}</div>
-                                                <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Sponsored • AI Draft</div>
-                                            </div>
-                                        </div>
-                                        {option.recommended && (
-                                            <span className="px-2 py-1 bg-green-100 text-green-700 text-[9px] font-black rounded-full uppercase tracking-widest animate-pulse">
-                                                ★ Best Performance
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    <div className="p-6">
-                                        <div className="flex justify-end gap-3 mb-4">
-                                            {isEditing === idx ? (
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleEditSave(idx); }}
-                                                    className="px-4 py-1 bg-harvest-green text-white rounded-lg text-xs font-black uppercase tracking-wider shadow-sm hover:bg-green-700 transition-all"
-                                                >
-                                                    💾 Save Edit
-                                                </button>
-                                            ) : (
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleEditStart(idx); }}
-                                                    className="px-3 py-1 bg-gray-50 border border-gray-100 rounded-lg text-[10px] font-black text-gray-400 hover:text-[#006633] hover:border-[#006633] transition-all flex items-center gap-1 uppercase tracking-wider"
-                                                >
-                                                    ✏️ Edit Post
-                                                </button>
-                                            )}
-                                            <button
-                                                onClick={(e) => handleCopy(e, `${option.caption}\n\n${option.hashtags}`, idx)}
-                                                className="px-3 py-1 bg-gray-50 border border-gray-100 rounded-lg text-[10px] font-black text-gray-400 hover:text-harvest-green hover:border-harvest-green transition-all flex items-center gap-1 uppercase tracking-wider"
-                                            >
-                                                {copiedIdx === idx ? "✅ Copied" : "📋 Copy"}
-                                            </button>
-                                        </div>
-
-                                        {isEditing === idx ? (
-                                            <div className="space-y-4">
-                                                <textarea
-                                                    value={editedCaption || ""}
-                                                    onChange={(e) => setEditedCaption(e.target.value)}
-                                                    className="w-full min-h-[120px] p-4 bg-white border-2 border-harvest-green rounded-xl outline-none font-medium text-gray-800 leading-relaxed"
-                                                    autoFocus
-                                                />
-                                                <input
-                                                    type="text"
-                                                    value={editedHashtags || ""}
-                                                    onChange={(e) => setEditedHashtags(e.target.value)}
-                                                    className="w-full p-3 bg-white border-2 border-harvest-green rounded-xl outline-none font-bold text-harvest-green text-sm"
-                                                    placeholder="#hashtags"
-                                                />
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <p className="text-gray-800 leading-relaxed mb-6 whitespace-pre-wrap font-medium">{option.caption}</p>
-                                                <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-50">
-                                                    {option.hashtags.split(" ").map((tag: string) => (
-                                                        <span key={tag} className="text-harvest-green font-bold text-xs">{tag}</span>
-                                                    ))}
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        {source === "Template Fallback" && (
-                            <div className="flex flex-col items-center gap-2">
-                                <span className="text-[10px] text-amber-500 font-bold italic">
-                                    ⚠️ AI Busy: Showing high-engagement harvest templates
-                                </span>
-                            </div>
-                        )}
-
-                        <div className="pt-10 flex flex-col gap-4">
-                            <button
-                                onClick={() => setView("preview")}
-                                className="w-full bg-harvest-green hover:bg-green-800 text-white font-bold py-6 rounded-2xl shadow-xl shadow-green-900/10 flex items-center justify-center gap-3 transition-all text-xl"
-                            >
-                                🔍 Preview Your Post
-                            </button>
-                            <button
-                                onClick={() => setRetryCount(prev => prev + 1)}
-                                className="w-full text-center text-gray-500 hover:text-harvest-green font-bold text-sm transition-colors py-4"
-                            >
-                                🔄 Didn't like these? Regenerate Options
-                            </button>
-                            <button
-                                type="button"
-                                onClick={async () => {
-                                    try {
-                                        await savePostToDB('draft', 'none');
-                                        router.push('/recent');
-                                    } catch (err) {
-                                        alert(err instanceof ContentPolicyError
-                                            ? 'This post contains disallowed content and cannot be saved.'
-                                            : 'Failed to save draft. Please try again.');
-                                    }
-                                }}
-                                className="w-full text-center text-gray-400 hover:text-harvest-green font-bold text-sm transition-colors py-2"
-                            >
-                                Save as Draft
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* PUBLISH TO FACEBOOK MODAL */}
-            {showPublishModal && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-5">
-                    <div className="bg-white rounded-2xl max-w-md w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
-                        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                            <h3 className="text-xl font-bold text-gray-800">Publish to Facebook</h3>
-                            <button
-                                onClick={() => !isPublishing && setShowPublishModal(false)}
-                                disabled={isPublishing}
-                                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
-                            >&times;</button>
-                        </div>
-
-                        <div className="p-6 space-y-6">
-                            <p className="text-gray-600 text-sm">Select where you'd like to share this harvest update. Your selected caption and photo will be posted directly.</p>
-
-                            <div className="space-y-4">
-                                <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xl">📋</span>
-                                        <div className="text-xs text-amber-800 font-medium">Copy caption now to paste manually if needed</div>
-                                    </div>
-                                    <button
-                                        onClick={() => handleCopy(null, `${options[selectedOption].caption}\n\n${options[selectedOption].hashtags}`, 999)}
-                                        className="bg-white px-3 py-1 rounded-md text-[10px] font-bold border border-amber-200 hover:bg-amber-100 transition-colors"
-                                    >
-                                        {copiedIdx === 999 ? "✅ Copied" : "Copy Caption"}
-                                    </button>
-                                </div>
-
-                                {/* Personal Page Toggle */}
-                                <label className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${postPersonal ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}>
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xl">👤</div>
-                                        <div>
-                                            <div className="font-bold text-gray-800">Personal Timeline</div>
-                                            <div className="text-xs text-gray-500">Share with friends & family</div>
-                                        </div>
-                                    </div>
-                                    <div className={`w-6 h-6 rounded border flex items-center justify-center ${postPersonal ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 bg-white'}`}>
-                                        {postPersonal && <span>✓</span>}
-                                    </div>
-                                    <input type="checkbox" className="hidden" checked={postPersonal} onChange={() => setPostPersonal(!postPersonal)} disabled={isPublishing} />
-                                </label>
-
-                                {/* Business Page Toggle */}
-                                <label className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${postBusiness ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}>
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xl">🏪</div>
-                                        <div>
-                                            <div className="font-bold text-gray-800">Farm Business Page</div>
-                                            <div className="text-xs text-gray-500">Share with followers & customers</div>
-                                        </div>
-                                    </div>
-                                    <div className={`w-6 h-6 rounded border flex items-center justify-center ${postBusiness ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 bg-white'}`}>
-                                        {postBusiness && <span>✓</span>}
-                                    </div>
-                                    <input type="checkbox" className="hidden" checked={postBusiness} onChange={() => setPostBusiness(!postBusiness)} disabled={isPublishing} />
-                                </label>
-                            </div>
-                        </div>
-
-                        <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-4">
-                            <button
-                                onClick={() => setShowPublishModal(false)}
-                                disabled={isPublishing}
-                                className="button-secondary flex-1 justify-center py-3"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={confirmPublish}
-                                disabled={isPublishing || (!postPersonal && !postBusiness)}
-                                className="flex-1 justify-center py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
-                            >
-                                {isPublishing ? (
-                                    <>
-                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                        Publishing...
-                                    </>
-                                ) : (
-                                    <>
-                                        <span className="text-lg">f</span> Publish Now
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Success Modal */}
-            {showSuccessModal && (
-                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-5 backdrop-blur-sm" style={{ animation: 'fadeIn 0.3s ease-out' }}>
-                    <div className="bg-white rounded-[40px] max-w-sm w-full overflow-hidden shadow-2xl" style={{ animation: 'scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }}>
-                        <div className="relative p-10 text-center overflow-hidden">
-                            {/* Confetti dots */}
-                            <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                                {[...Array(12)].map((_, i) => (
-                                    <div
-                                        key={i}
-                                        className="absolute rounded-full"
-                                        style={{
-                                            width: `${6 + Math.random() * 8}px`,
-                                            height: `${6 + Math.random() * 8}px`,
-                                            background: ['#0a66c2', '#006633', '#22c55e', '#3b82f6', '#f59e0b', '#ec4899'][i % 6],
-                                            left: `${10 + Math.random() * 80}%`,
-                                            top: `${-10}%`,
-                                            opacity: 0.7,
-                                            animation: `confettiFall ${1.5 + Math.random() * 2}s ease-out ${Math.random() * 0.5}s forwards`,
-                                        }}
-                                    />
-                                ))}
-                            </div>
-
-                            {/* Success Icon */}
-                            <div className={`w-24 h-24 mx-auto mb-8 rounded-[28px] flex items-center justify-center text-white text-5xl shadow-xl ${showSuccessModal.platform === 'linkedin'
-                                ? 'bg-gradient-to-br from-[#0a66c2] to-[#004182] shadow-[#0a66c2]/30'
-                                : showSuccessModal.platform === 'facebook'
-                                    ? 'bg-gradient-to-br from-[#1877f2] to-[#0d47a1] shadow-blue-600/30'
-                                    : 'bg-gradient-to-br from-[#006633] to-[#004d26] shadow-green-900/30'
-                                }`} style={{ animation: 'bounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both' }}>
-                                {showSuccessModal.platform === 'linkedin' ? (
-                                    <span style={{ fontFamily: 'serif', fontWeight: 900 }}>in</span>
-                                ) : showSuccessModal.platform === 'facebook' ? (
-                                    <span style={{ fontWeight: 900 }}>f</span>
-                                ) : (
-                                    <span>✓</span>
-                                )}
-                            </div>
-
-                            {/* Animated Checkmark Ring */}
-                            <div className="absolute top-[52px] left-1/2 -translate-x-1/2 w-28 h-28 rounded-[32px] border-4 opacity-20" style={{
-                                borderColor: showSuccessModal.platform === 'linkedin' ? '#0a66c2' : showSuccessModal.platform === 'facebook' ? '#1877f2' : '#006633',
-                                animation: 'ringPulse 2s ease-in-out infinite'
-                            }} />
-
-                            <h3 className="text-2xl font-black text-gray-900 tracking-tight mb-2" style={{ animation: 'slideUp 0.5s ease-out 0.3s both' }}>
-                                Published Successfully! 🎉
-                            </h3>
-                            <p className="text-gray-500 text-sm leading-relaxed mb-8" style={{ animation: 'slideUp 0.5s ease-out 0.4s both' }}>
-                                {showSuccessModal.message}
-                            </p>
-
-                            <div className="flex flex-col gap-3" style={{ animation: 'slideUp 0.5s ease-out 0.5s both' }}>
-                                <button
-                                    type="button"
-                                    onClick={() => router.push('/dashboard')}
-                                    className={`w-full py-4 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 ${showSuccessModal.platform === 'linkedin'
-                                        ? 'bg-[#0a66c2] hover:bg-[#004182] shadow-[#0a66c2]/30'
-                                        : showSuccessModal.platform === 'facebook'
-                                            ? 'bg-[#1877f2] hover:bg-[#0d47a1] shadow-blue-600/30'
-                                            : 'bg-[#006633] hover:bg-[#004d26] shadow-green-900/30'
-                                        }`}
->
-                                    Go to Dashboard
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setShowSuccessModal(null);
-                                        router.push('/recent');
-                                    }}
-                                    className="w-full py-3 bg-gray-50 text-gray-500 font-bold rounded-2xl hover:bg-gray-100 transition-all"
-                                >
-                                    View Post History
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <style jsx>{`
-                        @keyframes fadeIn {
-                            from { opacity: 0; }
-                            to { opacity: 1; }
-                        }
-                        @keyframes scaleIn {
-                            from { opacity: 0; transform: scale(0.85); }
-                            to { opacity: 1; transform: scale(1); }
-                        }
-                        @keyframes bounceIn {
-                            from { opacity: 0; transform: scale(0.3) rotate(-10deg); }
-                            to { opacity: 1; transform: scale(1) rotate(0deg); }
-                        }
-                        @keyframes slideUp {
-                            from { opacity: 0; transform: translateY(16px); }
-                            to { opacity: 1; transform: translateY(0); }
-                        }
-                        @keyframes ringPulse {
-                            0%, 100% { transform: scale(1); opacity: 0.2; }
-                            50% { transform: scale(1.15); opacity: 0.05; }
-                        }
-                        @keyframes confettiFall {
-                            0% { transform: translateY(0) rotate(0deg); opacity: 0.8; }
-                            100% { transform: translateY(400px) rotate(720deg); opacity: 0; }
-                        }
-                    `}</style>
-                </div>
-            )}
-        </main>
-    );
+    return null; // Fallback
 }
 
-export default function HarvestContent() {
+export default function HarvestContentPage() {
     return (
-        <Suspense fallback={
-            <main>
-                <Header />
-                <div className="max-w-[1200px] mx-auto py-20 px-5 text-center">
-                    <div className="card max-w-lg mx-auto py-16">
-                        <div className="w-16 h-16 border-4 border-gray-100 border-t-harvest-green rounded-full animate-spin mx-auto mb-8"></div>
-                        <h2 className="text-2xl font-bold">Loading...</h2>
-                    </div>
-                </div>
-            </main>
-        }>
+        <Suspense fallback={<div>Loading...</div>}>
             <HarvestContentInner />
         </Suspense>
     );
