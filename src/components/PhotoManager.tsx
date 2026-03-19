@@ -40,9 +40,11 @@ export default function PhotoManager({
     const [videoPredictionId, setVideoPredictionId] = useState<string | null>(null);
     const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
     const [videoError, setVideoError] = useState<string | null>(null);
-    const [isUploadingAiVideo, setIsUploadingAiVideo] = useState(false);
+    const [videoGenStatus, setVideoGenStatus] = useState("Creating your video...");
+    const [manualVideoUploadStatus, setManualVideoUploadStatus] = useState("");
     const [videoPromptSource, setVideoPromptSource] = useState<string | null>(null);
     const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const audioCtxRef = useRef<AudioContext | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
     const [isUploadingAi, setIsUploadingAi] = useState(false);
@@ -184,19 +186,23 @@ export default function PhotoManager({
         const fileName = `vid-${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
         const filePath = `${user.id}/${fileName}`;
 
+        setManualVideoUploadStatus("Uploading video...");
         const { error: uploadError } = await supabase.storage
             .from('harvest-photos')
             .upload(filePath, file, { contentType: file.type });
 
         if (uploadError) {
+            setManualVideoUploadStatus("");
             setImageError("Failed to upload video: " + uploadError.message);
             return;
         }
 
+        setManualVideoUploadStatus("Finalizing...");
         const { data } = await supabase.storage
             .from('harvest-photos')
             .createSignedUrl(filePath, 3600 * 24 * 7);
 
+        setManualVideoUploadStatus("");
         if (data?.signedUrl) {
             if (onSelectVideo) onSelectVideo(data.signedUrl);
             if (!harvestData) {
@@ -220,12 +226,64 @@ export default function PhotoManager({
                 const res = await fetch(`/api/poll-video?id=${videoPredictionId}`, { headers: pollHeaders });
                 const data = await res.json();
 
+                if (!res.ok || data.error) {
+                    clearInterval(pollIntervalRef.current!);
+                    pollIntervalRef.current = null;
+                    setVideoError(data.error || "Video generation failed. Please try again.");
+                    setIsGeneratingVideo(false);
+                    setVideoPredictionId(null);
+                    audioCtxRef.current?.close();
+                    audioCtxRef.current = null;
+                    return;
+                }
+
                 if (data.status === "succeeded" && data.videoUrl) {
                     clearInterval(pollIntervalRef.current!);
                     pollIntervalRef.current = null;
-                    setGeneratedVideoUrl(data.videoUrl);
-                    setIsGeneratingVideo(false);
                     setVideoPredictionId(null);
+                    // Keep spinner going — now mixing audio and saving automatically
+                    try {
+                        setVideoGenStatus("Adding music...");
+                        const videoRes = await fetch(data.videoUrl);
+                        const rawBlob = await videoRes.blob();
+                        let blob = rawBlob;
+                        if (audioCtxRef.current) {
+                            try {
+                                await audioCtxRef.current.resume();
+                                blob = await mixAudioIntoVideo(rawBlob, audioCtxRef.current);
+                            } catch {
+                                // Fall back to no audio
+                            }
+                        }
+                        setVideoGenStatus("Saving to gallery...");
+                        const { data: { user } } = await supabase.auth.getUser();
+                        if (user) {
+                            const ext = blob.type.includes("webm") ? "webm" : "mp4";
+                            const fileName = `vid-ai-${Date.now()}-${Math.random().toString(36).substring(2)}.${ext}`;
+                            const filePath = `${user.id}/${fileName}`;
+                            const { error: uploadError } = await supabase.storage
+                                .from("harvest-photos")
+                                .upload(filePath, blob, { contentType: blob.type || "video/mp4" });
+                            if (!uploadError) {
+                                const { data: urlData } = await supabase.storage
+                                    .from("harvest-photos")
+                                    .createSignedUrl(filePath, 3600 * 24 * 7);
+                                const finalUrl = urlData?.signedUrl ?? data.videoUrl;
+                                if (onSelectVideo) onSelectVideo(finalUrl);
+                                setGeneratedVideoUrl(finalUrl);
+                            } else {
+                                setGeneratedVideoUrl(data.videoUrl);
+                            }
+                        } else {
+                            setGeneratedVideoUrl(data.videoUrl);
+                        }
+                    } catch {
+                        setGeneratedVideoUrl(data.videoUrl);
+                    } finally {
+                        audioCtxRef.current?.close();
+                        audioCtxRef.current = null;
+                        setIsGeneratingVideo(false);
+                    }
                 } else if (data.status === "failed" || data.status === "canceled") {
                     clearInterval(pollIntervalRef.current!);
                     pollIntervalRef.current = null;
@@ -237,7 +295,7 @@ export default function PhotoManager({
             } catch {
                 // network hiccup — keep polling
             }
-        }, 3000);
+        }, 1000);
 
         return () => {
             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -274,7 +332,11 @@ export default function PhotoManager({
 
     const generateAIVideo = async () => {
         if (!videoAiPrompt.trim()) return;
+        // Create AudioContext synchronously within the user gesture so browsers don't suspend it
+        audioCtxRef.current = new AudioContext();
+        await audioCtxRef.current.resume();
         setIsGeneratingVideo(true);
+        setVideoGenStatus("Creating your video...");
         setVideoError(null);
         setGeneratedVideoUrl(null);
 
@@ -302,47 +364,72 @@ export default function PhotoManager({
         }
     };
 
-    const saveAIVideo = async () => {
-        if (!generatedVideoUrl) return;
-        setIsUploadingAiVideo(true);
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) {
-                setSuccessMessage("You must be logged in to save videos.");
-                setShowSuccessModal(true);
-                return;
-            }
+    const mixAudioIntoVideo = (videoBlob: Blob, audioCtx: AudioContext): Promise<Blob> => {
+        const TIMEOUT_MS = 15000;
+        return Promise.race([
+            new Promise<Blob>((_, reject) =>
+                setTimeout(() => reject(new Error("Audio mix timeout")), TIMEOUT_MS)
+            ),
+        new Promise<Blob>((resolve, reject) => {
+            const videoObjectUrl = URL.createObjectURL(videoBlob);
+            const video = document.createElement("video");
+            const audio = document.createElement("audio");
 
-            const videoRes = await fetch(generatedVideoUrl);
-            const blob = await videoRes.blob();
-            const ext = blob.type.includes("webm") ? "webm" : "mp4";
-            const fileName = `vid-ai-${Date.now()}-${Math.random().toString(36).substring(2)}.${ext}`;
-            const filePath = `${user.id}/${fileName}`;
+            video.src = videoObjectUrl;
+            video.muted = true;
+            video.preload = "auto";
 
-            const { error: uploadError } = await supabase.storage
-                .from("harvest-photos")
-                .upload(filePath, blob, { contentType: blob.type || "video/mp4" });
-            if (uploadError) throw uploadError;
+            audio.src = "/audio/background.mp3";
+            audio.loop = true;
+            audio.volume = 0.15;
+            audio.preload = "auto";
 
-            const { data: urlData } = await supabase.storage
-                .from("harvest-photos")
-                .createSignedUrl(filePath, 3600 * 24 * 7);
+            const cleanup = () => URL.revokeObjectURL(videoObjectUrl);
+            let videoReady = false;
+            let audioReady = false;
 
-            if (urlData?.signedUrl) {
-                if (onSelectVideo) onSelectVideo(urlData.signedUrl);
-            }
+            const tryRecord = () => {
+                if (!videoReady || !audioReady) return;
+                try {
+                    const videoStream = (video as any).captureStream() as MediaStream;
+                    const audioSrc = audioCtx.createMediaElementSource(audio);
+                    const dest = audioCtx.createMediaStreamDestination();
+                    audioSrc.connect(dest);
 
-            setGeneratedVideoUrl(null);
-            setSuccessMessage("AI Video saved to your gallery!");
-            setShowSuccessModal(true);
-        } catch (err: any) {
-            console.error("Save AI video error:", err);
-            setSuccessMessage("Failed to save AI video.");
-            setShowSuccessModal(true);
-        } finally {
-            setIsUploadingAiVideo(false);
-        }
+                    const combined = new MediaStream([
+                        ...videoStream.getVideoTracks(),
+                        ...dest.stream.getAudioTracks(),
+                    ]);
+
+                    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+                        ? "video/webm;codecs=vp8,opus"
+                        : "video/webm";
+                    const recorder = new MediaRecorder(combined, { mimeType });
+                    const chunks: BlobPart[] = [];
+
+                    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+                    recorder.onstop = () => { cleanup(); resolve(new Blob(chunks, { type: "video/webm" })); };
+                    recorder.onerror = () => { cleanup(); reject(new Error("Recording failed")); };
+
+                    audio.play().catch(() => {});
+                    video.play();
+                    recorder.start();
+
+                    video.onended = () => { recorder.stop(); audio.pause(); };
+                } catch (err) {
+                    cleanup();
+                    reject(err);
+                }
+            };
+
+            audio.oncanplaythrough = () => { audioReady = true; tryRecord(); };
+            video.oncanplaythrough = () => { videoReady = true; tryRecord(); };
+            audio.onerror = () => { cleanup(); reject(new Error("Audio load failed")); };
+            video.onerror = () => { cleanup(); reject(new Error("Video load failed")); };
+        }),
+        ]);
     };
+
 
     const generateAIPrompt = async () => {
         if (!harvestData?.produceType.trim()) return;
@@ -471,8 +558,8 @@ export default function PhotoManager({
                     {videoTab === "upload" && (
                         <div className="space-y-4">
                             <div
-                                className="border-4 border-dashed border-gray-100 rounded-2xl p-10 text-center bg-gray-50 hover:border-harvest-green hover:bg-harvest-light transition-all cursor-pointer"
-                                onClick={() => document.getElementById('video-input')?.click()}
+                                className={`border-4 border-dashed rounded-2xl p-10 text-center transition-all ${manualVideoUploadStatus ? "border-harvest-green bg-harvest-light cursor-not-allowed" : "border-gray-100 bg-gray-50 hover:border-harvest-green hover:bg-harvest-light cursor-pointer"}`}
+                                onClick={() => !manualVideoUploadStatus && document.getElementById('video-input')?.click()}
                             >
                                 <input
                                     type="file"
@@ -481,9 +568,27 @@ export default function PhotoManager({
                                     accept="video/*"
                                     onChange={handleVideoUpload}
                                 />
-                                <div className="text-4xl mb-4">🎥</div>
-                                <div className="text-base font-bold text-gray-800 mb-1">Upload a Video</div>
-                                <div className="text-xs text-gray-500">MP4, MOV, WebM supported · Max 1 video · 50MB limit</div>
+                                {manualVideoUploadStatus ? (
+                                    <>
+                                        <div className="flex items-center justify-center mb-3">
+                                            <svg className="animate-spin h-8 w-8 text-harvest-green" viewBox="0 0 24 24" fill="none">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                            </svg>
+                                        </div>
+                                        <div className="text-base font-bold text-harvest-green mb-1">{manualVideoUploadStatus}</div>
+                                        <div className="text-xs text-gray-500">
+                                            {manualVideoUploadStatus === "Uploading video..." && "Sending to storage — please wait"}
+                                            {manualVideoUploadStatus === "Finalizing..." && "Almost done — generating secure link"}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="text-4xl mb-4">🎥</div>
+                                        <div className="text-base font-bold text-gray-800 mb-1">Upload a Video</div>
+                                        <div className="text-xs text-gray-500">MP4, MOV, WebM supported · Max 1 video · 50MB limit</div>
+                                    </>
+                                )}
                             </div>
                             {selectedVideos.length > 0 && (
                                 <div className="space-y-3">
@@ -561,8 +666,12 @@ export default function PhotoManager({
                                     <div className="flex justify-center">
                                         <div className="w-10 h-10 border-4 border-harvest-green/20 border-t-harvest-green rounded-full animate-spin"></div>
                                     </div>
-                                    <p className="text-sm font-bold text-gray-700">Creating your video...</p>
-                                    <p className="text-xs text-gray-400">AI video generation takes 30–90 seconds. Hang tight!</p>
+                                    <p className="text-sm font-bold text-gray-700">{videoGenStatus}</p>
+                                    <p className="text-xs text-gray-400">
+                                        {videoGenStatus === "Creating your video..." && "AI generation takes ~30 seconds. Hang tight!"}
+                                        {videoGenStatus === "Adding music..." && "Mixing background audio into your video..."}
+                                        {videoGenStatus === "Saving to gallery..." && "Uploading to your gallery..."}
+                                    </p>
                                 </div>
                             )}
 
@@ -584,14 +693,9 @@ export default function PhotoManager({
                                             className="w-full h-full object-contain"
                                         />
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={saveAIVideo}
-                                        disabled={isUploadingAiVideo}
-                                        className="bg-harvest-green text-white px-6 py-3 rounded-2xl font-black shadow-lg hover:shadow-xl transition-all text-sm disabled:opacity-50 flex items-center justify-center gap-2 mx-auto"
-                                    >
-                                        {isUploadingAiVideo ? "Saving..." : "✓ Save to Gallery"}
-                                    </button>
+                                    <p className="text-sm font-bold text-harvest-green">
+                                        ✓ Video saved to gallery — click &quot;Generate Content with AI&quot; to continue
+                                    </p>
                                 </div>
                             )}
 

@@ -4,6 +4,8 @@ import { cqraRequireAuth } from "@/lib/cqra";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
+const FAL_MODEL = "fal-ai/wan-t2v";
+
 export async function POST(req: Request) {
     const gate = await cqraRequireAuth(req, "generate_video");
     if (!gate.ok) {
@@ -17,9 +19,9 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Missing prompt" }, { status: 400 });
         }
 
-        if (!process.env.REPLICATE_API_KEY) {
+        if (!process.env.FAL_KEY) {
             return NextResponse.json(
-                { error: "REPLICATE_API_KEY is not configured. Add it to your .env.local file." },
+                { error: "FAL_KEY is not configured. Add it to your .env.local file." },
                 { status: 500 }
             );
         }
@@ -30,10 +32,18 @@ export async function POST(req: Request) {
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
                 const result = await model.generateContent(
-                    `You are an expert at writing text-to-video prompts.
-                    Expand the following description into a detailed, cinematic video prompt.
-                    Focus on: camera motion (slow pan, close-up, handheld), lighting, textures, and natural farm action.
-                    Keep it under 80 words. Return ONLY the prompt text, no commentary.
+                    `You are a world-class cinematographer writing text-to-video prompts for an AI video generator.
+                    Expand the following farm/harvest description into a rich, vivid, cinematic video prompt.
+
+                    Include ALL of the following elements:
+                    - Camera: specific shot type and motion (e.g. slow dolly-in, low-angle tracking shot, gentle handheld pan, extreme close-up with rack focus)
+                    - Lighting: precise quality (e.g. warm golden-hour backlight, soft diffused morning mist, dappled sunlight through foliage, dust motes in afternoon rays)
+                    - Texture & detail: tactile surface descriptions (e.g. glistening dew on waxy leaves, rough bark and sun-kissed skin, deep earthy soil, jewel-toned produce)
+                    - Motion & life: organic movement (e.g. leaves swaying in a gentle breeze, a bee landing on a blossom, hands carefully cradling ripe fruit, steam rising from soil)
+                    - Atmosphere & depth: layered scene (foreground crop detail, midground human or farm activity, background landscape fading to bokeh)
+                    - Mood: one-word emotional tone that ties it together (e.g. serene, abundant, hopeful, earthy)
+
+                    Keep it to 80-120 words. Return ONLY the prompt text, no labels or commentary.
 
                     Input: ${prompt}`
                 );
@@ -43,41 +53,45 @@ export async function POST(req: Request) {
             }
         }
 
-        console.log(`>>> Submitting video generation to Replicate WAN 2.1: "${expandedPrompt}"`);
+        console.log(`>>> Submitting video generation to fal.ai WAN 2.1: "${expandedPrompt}"`);
 
-        const res = await fetch(
-            "https://api.replicate.com/v1/models/wavespeedai/wan-2.1-t2v-480p/predictions",
-            {
-                method: "POST",
-                headers: {
-                    Authorization: `Bearer ${process.env.REPLICATE_API_KEY}`,
-                    "Content-Type": "application/json",
-                    "Prefer": "respond-async",
-                },
-                body: JSON.stringify({
-                    input: {
-                        prompt: expandedPrompt,
-                        negative_prompt: "blurry, low quality, distorted, watermark, text, logo",
-                        num_frames: 81,        // ~5 seconds at 16fps
-                        frames_per_second: 16,
-                        guidance_scale: 7.5,
-                        num_inference_steps: 30,
-                    },
-                }),
-            }
-        );
+        const res = await fetch(`https://queue.fal.run/${FAL_MODEL}`, {
+            method: "POST",
+            headers: {
+                Authorization: `Key ${process.env.FAL_KEY}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                prompt: expandedPrompt,
+                negative_prompt: "blurry, low quality, distorted, watermark, text, logo",
+                num_inference_steps: 20,
+                guidance_scale: 7.5,
+                resolution: "480p",
+            }),
+        });
+
+        const rawBody = await res.text();
+        console.log(`>>> fal.ai response [${res.status}]:`, rawBody);
 
         if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
+            const err = JSON.parse(rawBody || "{}");
             return NextResponse.json(
-                { error: err.detail || "Failed to submit video generation job" },
+                { error: err.detail || err.message || "Failed to submit video generation job" },
                 { status: res.status }
             );
         }
 
-        const data = await res.json();
+        const data = JSON.parse(rawBody);
+        if (!data.request_id) {
+            console.error(">>> fal.ai returned no request_id:", data);
+            return NextResponse.json(
+                { error: "fal.ai did not return a request ID. Response: " + rawBody },
+                { status: 500 }
+            );
+        }
+
         return NextResponse.json({
-            predictionId: data.id,
+            predictionId: data.request_id,
             status: data.status,
             expandedPrompt,
         });

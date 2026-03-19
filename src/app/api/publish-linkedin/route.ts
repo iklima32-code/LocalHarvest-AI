@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { decryptToken } from "@/lib/encryption";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { fetchIPv4 } from "@/lib/fetchIPv4";
 
 export async function POST(req: Request) {
     try {
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
 
         // 3a. If video present, upload via LinkedIn Assets API (video flow)
         if (videoUrl) {
-            const registerRes = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
+            const registerRes = await fetchIPv4("https://api.linkedin.com/v2/assets?action=registerUpload", {
                 method: "POST",
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
@@ -60,11 +61,11 @@ export async function POST(req: Request) {
             const assetUrn = registerData?.value?.asset;
 
             if (uploadUrl && assetUrn) {
-                const videoRes = await fetch(videoUrl);
-                const contentType = videoRes.headers.get("content-type") || "video/mp4";
+                const videoRes = await fetchIPv4(videoUrl);
+                const contentType = (videoRes.headers["content-type"] as string) || "video/mp4";
                 const videoBuffer = await videoRes.arrayBuffer();
 
-                await fetch(uploadUrl, {
+                await fetchIPv4(uploadUrl, {
                     method: "POST",
                     headers: {
                         Authorization: `Bearer ${accessToken}`,
@@ -87,8 +88,7 @@ export async function POST(req: Request) {
 
         // 3b. If image present (and no video), upload via LinkedIn Assets API (image flow)
         if (!videoUrl && imageUrl) {
-            // Register the image upload
-            const registerRes = await fetch("https://api.linkedin.com/v2/assets?action=registerUpload", {
+            const registerRes = await fetchIPv4("https://api.linkedin.com/v2/assets?action=registerUpload", {
                 method: "POST",
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
@@ -114,11 +114,10 @@ export async function POST(req: Request) {
             const assetUrn = registerData?.value?.asset;
 
             if (uploadUrl && assetUrn) {
-                // Fetch the image and upload to LinkedIn
-                const imageRes = await fetch(imageUrl);
+                const imageRes = await fetchIPv4(imageUrl);
                 const imageBuffer = await imageRes.arrayBuffer();
 
-                await fetch(uploadUrl, {
+                await fetchIPv4(uploadUrl, {
                     method: "POST",
                     headers: {
                         Authorization: `Bearer ${accessToken}`,
@@ -155,7 +154,7 @@ export async function POST(req: Request) {
             },
         };
 
-        const ugcRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+        const ugcRes = await fetchIPv4("https://api.linkedin.com/v2/ugcPosts", {
             method: "POST",
             headers: {
                 Authorization: `Bearer ${accessToken}`,

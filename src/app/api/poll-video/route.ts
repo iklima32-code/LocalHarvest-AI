@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { cqraRequireAuth } from "@/lib/cqra";
 
+const FAL_MODEL = "fal-ai/wan-t2v";
+
 export async function GET(req: Request) {
     const gate = await cqraRequireAuth(req, "poll_video");
     if (!gate.ok) {
@@ -15,34 +17,52 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: "Missing prediction ID" }, { status: 400 });
         }
 
-        if (!process.env.REPLICATE_API_KEY) {
-            return NextResponse.json({ error: "REPLICATE_API_KEY not configured" }, { status: 500 });
+        if (!process.env.FAL_KEY) {
+            return NextResponse.json({ error: "FAL_KEY not configured" }, { status: 500 });
         }
 
-        const res = await fetch(`https://api.replicate.com/v1/predictions/${predictionId}`, {
-            headers: {
-                Authorization: `Bearer ${process.env.REPLICATE_API_KEY}`,
-            },
-        });
+        const headers = { Authorization: `Key ${process.env.FAL_KEY}` };
 
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
+        // Check status first
+        const statusRes = await fetch(
+            `https://queue.fal.run/${FAL_MODEL}/requests/${predictionId}/status`,
+            { headers }
+        );
+
+        if (!statusRes.ok) {
+            const err = await statusRes.json().catch(() => ({}));
             return NextResponse.json(
                 { error: err.detail || "Failed to poll prediction" },
-                { status: res.status }
+                { status: statusRes.status }
             );
         }
 
-        const data = await res.json();
+        const statusData = await statusRes.json();
+        // fal.ai statuses: IN_QUEUE | IN_PROGRESS | COMPLETED | FAILED
+        const falStatus = statusData.status as string;
 
-        // WAN 2.1 returns a single URL string as output
-        const videoUrl = Array.isArray(data.output) ? data.output[0] : data.output ?? null;
+        if (falStatus === "COMPLETED") {
+            // Fetch the result
+            const resultRes = await fetch(
+                `https://queue.fal.run/${FAL_MODEL}/requests/${predictionId}`,
+                { headers }
+            );
+            const result = await resultRes.json();
+            const videoUrl = result?.video?.url ?? null;
 
-        return NextResponse.json({
-            status: data.status,   // starting | processing | succeeded | failed | canceled
-            videoUrl,
-            error: data.error ?? null,
-        });
+            return NextResponse.json({ status: "succeeded", videoUrl, error: null });
+        }
+
+        if (falStatus === "FAILED") {
+            return NextResponse.json({
+                status: "failed",
+                videoUrl: null,
+                error: statusData.error || "Video generation failed",
+            });
+        }
+
+        // IN_QUEUE or IN_PROGRESS — still running
+        return NextResponse.json({ status: "processing", videoUrl: null, error: null });
 
     } catch (error: any) {
         console.error("Poll video error:", error);

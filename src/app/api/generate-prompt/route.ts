@@ -61,9 +61,8 @@ export async function POST(req: Request) {
         }
 
         const prompt = isVideo
-            ? `You are an expert at creating text-to-video prompts for AI video generators.
-        Based on the harvest data and farm context below, create a single cinematic video prompt describing a short farm scene.
-
+            ? `You are a world-class cinematographer creating a text-to-video prompt for an AI video generator.
+        Based on the harvest data and farm context below, write a single rich, sensory, cinematic prompt describing a short farm scene.
 
         Harvest Data:
         - Produce: ${harvestData.produceType}
@@ -75,12 +74,17 @@ export async function POST(req: Request) {
         Brand Aesthetic: ${visualStyle}
 
         Requirements:
-        1. Keep it to 1-2 sentences (under 60 words).
-        2. Describe motion, action, and atmosphere (e.g., "A farmer's hands gently picking ripe tomatoes, golden morning light, dew on the leaves, slow pan").
+        1. Keep it to 60-100 words.
+        2. Layer these elements naturally into one flowing description:
+           - Shot type & camera motion (e.g. slow dolly-in, low-angle pan, handheld close-up, rack focus)
+           - Lighting quality (e.g. golden-hour backlight, soft morning mist, dappled canopy light, warm afternoon rays)
+           - Tactile texture & colour (e.g. glistening dew, jewel-toned produce, rich dark soil, sun-kissed skin)
+           - Organic movement (e.g. leaves rustling, hands cradling fruit, a bee landing, steam rising from soil)
+           - Layered depth (foreground crop detail → midground action → background landscape in bokeh)
         3. Reflect the brand aesthetic naturally — do not name the style explicitly.
         ${farmName ? `4. You may reference "${farmName}" subtly if it fits naturally.` : ""}
-        ${location ? `5. Incorporate the ${location} landscape/environment if relevant.` : ""}
-        Return ONLY the prompt text, no commentary.`
+        ${location ? `5. Weave in the ${location} landscape or environment.` : ""}
+        Return ONLY the prompt text, no labels or commentary.`
             : `You are an expert at creating descriptive image generation prompts for DALL-E/Midjourney.
         Based on the harvest data and farm context below, create a single detailed photorealistic prompt for an image of the harvest.
 
@@ -162,7 +166,7 @@ export async function POST(req: Request) {
         const farmStr = farmName ? ` at ${farmName}` : locationStr;
 
         const fallbackPrompt = isVideo
-            ? `A farmer's hands carefully harvesting fresh ${varietyStr}${type}${farmStr}, warm golden morning light, dew on the leaves, slow cinematic pan.`
+            ? `Extreme close-up of weathered hands gently cradling freshly harvested ${varietyStr}${type}${farmStr}, slow dolly-in, warm golden-hour backlight casting a soft glow, glistening dew on leaves, jewel-toned produce, organic bokeh of lush green crops fading into the background, a gentle breeze stirs the foliage, serene and abundant mood.`
             : `A high-resolution, photorealistic close-up of ${quantityStr}${varietyStr}${type}, freshly harvested and resting in a rustic wooden crate${farmStr}, illuminated by soft morning sunlight with natural morning dew and authentic textures.`;
 
         return NextResponse.json({
