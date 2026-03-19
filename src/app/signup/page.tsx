@@ -33,8 +33,8 @@ export default function SignupPage() {
             setError(error.message);
             setLoading(false);
         } else {
-            // New users go to dashboard first, then we trigger onboarding after a delay
-            router.push("/dashboard?new=true");
+            // New users go to create page first
+            router.push("/create?new=true");
         }
     };
 

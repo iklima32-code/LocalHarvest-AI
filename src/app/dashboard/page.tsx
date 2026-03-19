@@ -64,7 +64,7 @@ function DashboardContent() {
 
             const { data: profileData } = await supabase
                 .from('profiles')
-                .select('onboarding_completed, farm_name, fb_page_id, linkedin_person_urn, farm_logo_url, fb_page_name')
+                .select('onboarding_completed, farm_name, fb_page_id, linkedin_person_urn, farm_logo_url, fb_page_name, full_name')
                 .eq('id', user.id)
                 .single();
 
@@ -116,6 +116,7 @@ function DashboardContent() {
 
     const maxDayCount = Math.max(...postsPerDay.map(d => d.count), 1);
     const farmName = profile?.farm_name || 'Your Farm';
+    const firstName = profile?.full_name ? profile.full_name.split(' ')[0] : (profile?.farm_name || "");
     const isFbConnected = !!profile?.fb_page_id;
     const isLinkedInConnected = !!profile?.linkedin_person_urn;
 
@@ -130,10 +131,10 @@ function DashboardContent() {
                     <div className="flex justify-between items-center mb-5">
                         <h3 className="text-xl font-bold text-gray-800">📊 Post Activity</h3>
                         <Link
-                            href="/create/harvest"
-                            className="text-xs bg-harvest-light text-harvest-green px-3 py-1 rounded font-bold hover:bg-harvest-green hover:text-white transition-colors"
+                            href="/create"
+                            className="button-primary button-sparkle text-sm px-4 py-2"
                         >
-                            + New Post
+                            ✨ Create New Post
                         </Link>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -289,10 +290,15 @@ function DashboardContent() {
                     <div className="space-y-8">
 
                         {/* Farm greeting */}
-                        <div className="bg-gradient-to-br from-harvest-green to-green-700 text-white p-6 rounded-xl shadow-lg">
-                            <div className="text-sm opacity-80 mb-1">Welcome back,</div>
-                            <div className="text-2xl font-bold leading-tight">{farmName}</div>
-                            <div className="text-xs opacity-70 mt-1">Ready to grow your audience?</div>
+                        <div className="bg-gradient-to-br from-harvest-green to-green-700 text-white p-8 rounded-[32px] shadow-xl relative overflow-hidden group">
+                            <div className="relative z-10">
+                                <div className="text-sm font-black uppercase tracking-widest opacity-80 mb-2 animate-in fade-in slide-in-from-left-4 duration-700">Digital Harvest Hub</div>
+                                <div className="text-4xl font-black leading-tight tracking-tight mb-1">Welcome back, {firstName}!</div>
+                                <div className="text-lg font-bold opacity-70 leading-none">{farmName}</div>
+                                <div className="text-xs opacity-60 mt-6 font-medium group-hover:opacity-100 transition-opacity">Ready to share something fresh today?</div>
+                            </div>
+                            {/* Decorative background circle */}
+                            <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
                         </div>
 
                         {/* Upcoming Scheduled */}

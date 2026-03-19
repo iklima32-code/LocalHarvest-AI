@@ -16,6 +16,7 @@ export interface Post {
     created_at?: string;
     metadata?: {
         imageUrl?: string | null;
+        videoUrl?: string | null;
         platform?: string;
         produceType?: string;
         quantity?: string;
@@ -36,6 +37,18 @@ export const postService = {
         const { data, error } = await supabase
             .from('posts')
             .insert([post])
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    },
+
+    async updatePost(id: string, post: Partial<Post>) {
+        const { data, error } = await supabase
+            .from('posts')
+            .update(post)
+            .eq('id', id)
             .select()
             .single();
 

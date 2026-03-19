@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 
 import { useHarvest } from "@/context/HarvestContext";
 import PhotoManager from "@/components/PhotoManager";
+import NavigationGuard from "@/components/NavigationGuard";
 
 export default function HarvestWorkflow() {
     const router = useRouter();
@@ -38,6 +39,7 @@ export default function HarvestWorkflow() {
     return (
         <main>
             <Header />
+            <NavigationGuard />
 
             <div className="max-w-[1200px] mx-auto py-10 px-5">
                 <div className="card">
@@ -51,7 +53,7 @@ export default function HarvestWorkflow() {
                     <div className="max-w-3xl mx-auto">
                         <div className="text-center mb-10">
                             <h3 className="text-3xl font-bold mb-3">What did you harvest today?</h3>
-                            <p className="text-gray-600 text-lg">This information will become your next social media post</p>
+                            <p className="text-gray-600 text-lg">This information will become your next social media caption</p>
                         </div>
 
                         <form onSubmit={handleNext} className="space-y-10">
@@ -130,38 +132,6 @@ export default function HarvestWorkflow() {
                                 </div>
                             </div>
 
-                            {/* Content Length Group */}
-                            <div className="bg-gray-50 p-8 rounded-2xl border-2 border-gray-100">
-                                <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-6">
-                                    <span>📏</span> Content Style
-                                </h4>
-                                <div className="space-y-4">
-                                    <div className="flex gap-4 p-1 bg-gray-200 rounded-xl">
-                                        {[
-                                            { id: "short", label: "Short Copy" },
-                                            { id: "long", label: "Long Copy" }
-                                        ].map((style) => (
-                                            <button
-                                                key={style.id}
-                                                type="button"
-                                                onClick={() => setFormData({ ...formData, contentLength: style.id })}
-                                                className={`flex-1 py-3 rounded-lg font-bold transition-all ${formData.contentLength === style.id
-                                                    ? "bg-white text-harvest-green shadow-sm"
-                                                    : "text-gray-500 hover:text-harvest-green"
-                                                    }`}
-                                            >
-                                                <span className="text-sm">{style.label}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <p className="text-xs text-gray-500 italic mt-2">
-                                        {formData.contentLength === "short"
-                                            ? "Short copy is great for quick updates. (1-2 sentences, quick & punchy)"
-                                            : "Long copy uses storytelling to stop the scroll. (8-15 sentences, engaging)"}
-                                    </p>
-                                </div>
-                            </div>
-
                             {/* Photo Management Section (Reusable Component) */}
                             <PhotoManager
                                 harvestData={formData}
@@ -185,7 +155,7 @@ export default function HarvestWorkflow() {
 
                             {/* Selected Media Preview */}
                             {(photos.length > 0 || videos.length > 0) && (
-                                <div className="p-8 bg-white border-2 border-harvest-green/10 rounded-2xl space-y-6">
+                                <div className="p-8 bg-white border-2 border-harvest-green/10 rounded-2xl space-y-6 mt-10">
                                     {photos.length > 0 && (
                                         <>
                                             <h5 className="font-bold text-sm text-gray-400 uppercase tracking-widest">Selected Photos <span className="text-harvest-green">({photos.length}/4)</span></h5>
@@ -195,7 +165,7 @@ export default function HarvestWorkflow() {
                                                         <img src={photo} alt={`Selected ${i}`} className="w-full h-full object-cover" />
                                                         <button
                                                             type="button"
-                                                            onClick={() => removePhoto(i)}
+                                                            onClick={() => setPhotos(photos.filter((_, idx) => idx !== i))}
                                                             className="absolute inset-0 bg-red-500/0 hover:bg-red-500/40 text-white flex items-center justify-center opacity-0 hover:opacity-100 transition-all"
                                                         >
                                                             <span className="bg-white text-red-500 w-8 h-8 rounded-full flex items-center justify-center font-bold shadow-lg">✕</span>
@@ -213,7 +183,7 @@ export default function HarvestWorkflow() {
                                                     <video src={video} controls className="w-full h-full object-contain" />
                                                     <button
                                                         type="button"
-                                                        onClick={() => removeVideo(i)}
+                                                        onClick={() => setVideos([])}
                                                         className="absolute top-2 right-2 bg-red-500 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold shadow-lg hover:bg-red-600 transition-all opacity-0 group-hover:opacity-100"
                                                     >
                                                         ✕
@@ -225,9 +195,42 @@ export default function HarvestWorkflow() {
                                 </div>
                             )}
 
+                            {/* Content Length Group */}
+                            <div className="bg-gray-50 p-8 rounded-2xl border-2 border-gray-100 mt-10">
+                                <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-6">
+                                    <span>📏</span> Caption Style
+                                </h4>
+                                <div className="space-y-4">
+                                    <div className="flex gap-4 p-1 bg-gray-200 rounded-xl">
+                                        {[
+                                            { id: "short", label: "Short Caption" },
+                                            { id: "long", label: "Long Caption" }
+                                        ].map((style) => (
+                                            <button
+                                                key={style.id}
+                                                type="button"
+                                                onClick={() => setFormData({ ...formData, contentLength: style.id })}
+                                                className={`flex-1 py-3 rounded-lg font-bold transition-all ${formData.contentLength === style.id
+                                                    ? "bg-white text-harvest-green shadow-sm"
+                                                    : "text-gray-500 hover:text-harvest-green"
+                                                    }`}
+                                            >
+                                                <span className="text-sm">{style.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-gray-500 italic mt-2">
+                                        {formData.contentLength === "short"
+                                            ? "Short copy is great for quick updates. (1-2 sentences, quick & punchy)"
+                                            : "Long copy uses storytelling to stop the scroll. (8-15 sentences, engaging)"}
+                                    </p>
+                                </div>
+                            </div>
+
+
                             <div className="pt-5 flex flex-col items-center gap-4">
                                 <button type="submit" className="button-primary w-full justify-center text-xl py-5 shadow-xl hover:shadow-2xl">
-                                    Generate Content with AI ✨
+                                    Generate Caption with AI ✨
                                 </button>
                                 <button
                                     type="button"
@@ -242,7 +245,7 @@ export default function HarvestWorkflow() {
                                     }}
                                     className="text-harvest-green font-bold hover:underline py-1 transition-all"
                                 >
-                                    Write my own content
+                                    Write my own caption
                                 </button>
                             </div>
                         </form>

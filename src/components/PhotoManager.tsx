@@ -30,7 +30,7 @@ export default function PhotoManager({
 }: PhotoManagerProps) {
     const [mediaMode, setMediaMode] = useState<"photo" | "video">("photo");
     const [activeTab, setActiveTab] = useState<"upload" | "gallery" | "ai">("gallery");
-    const [videoTab, setVideoTab] = useState<"upload" | "gallery" | "ai">("upload");
+    const [videoTab, setVideoTab] = useState<"upload" | "gallery" | "ai">("gallery");
     const [profile, setProfile] = useState<any>(null);
 
     // AI Video state
@@ -657,7 +657,7 @@ export default function PhotoManager({
                                 disabled={isGeneratingVideo || !videoAiPrompt.trim()}
                                 className="button-primary w-full justify-center py-3 text-sm disabled:opacity-50"
                             >
-                                {isGeneratingVideo ? "⏳ Generating..." : "🎬 Generate Video"}
+                                {isGeneratingVideo ? "⏳ Creating Video..." : "🎬 Generate Video"}
                             </button>
 
                             {/* Progress Indicator */}
@@ -814,7 +814,7 @@ export default function PhotoManager({
                                     disabled={isGenerating || !aiPrompt.trim()}
                                     className="button-primary w-full justify-center py-3 text-sm disabled:opacity-50 h-[50px]"
                                 >
-                                    {isGenerating ? "✨ Thinking..." : "📸 Generate Photo"}
+                                    {isGenerating ? "✨ Creating Photo..." : "📸 Generate Photo"}
                                 </button>
                             </div>
                         </div>

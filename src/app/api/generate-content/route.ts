@@ -7,6 +7,45 @@ import { containsDisallowedContent } from "@/lib/content-policy";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
 
+/**
+ * Robustly parses AI responses into a standardized array of options.
+ * Handles nested objects, various array keys, and normalizes platform names.
+ */
+function parseAIResponse(parsed: any) {
+    let rawOptions = [];
+    if (Array.isArray(parsed)) {
+        rawOptions = parsed;
+    } else if (parsed.options && Array.isArray(parsed.options)) {
+        rawOptions = parsed.options;
+    } else if (parsed.captions && Array.isArray(parsed.captions)) {
+        rawOptions = parsed.captions;
+    } else if (parsed.results && Array.isArray(parsed.results)) {
+        rawOptions = parsed.results;
+    } else {
+        const firstArrayKey = Object.keys(parsed).find(key => Array.isArray(parsed[key]));
+        if (firstArrayKey) rawOptions = parsed[firstArrayKey];
+    }
+
+    if (!rawOptions || rawOptions.length === 0) return [];
+
+    return rawOptions.map((opt: any) => {
+        // Normalize platform naming
+        let platform = (opt.platform || opt.platform_name || opt.network || "").toLowerCase();
+        if (platform.includes("fb") || platform.includes("face")) platform = "facebook";
+        if (platform.includes("li") || platform.includes("link")) platform = "linkedin";
+        if (platform.includes("ig") || platform.includes("insta")) platform = "instagram";
+        if (platform.includes("tik")) platform = "tiktok";
+        if (platform.includes("x") || platform.includes("twit")) platform = "x";
+
+        return {
+            platform: platform || "unknown",
+            caption: opt.caption || opt.text || opt.content || "",
+            hashtags: opt.hashtags || opt.tags || "",
+            recommended: opt.recommended ?? true
+        };
+    });
+}
+
 export async function POST(req: Request) {
     const gate = await cqraRequireAuth(req, "generate_content");
     if (!gate.ok) {
@@ -86,20 +125,38 @@ export async function POST(req: Request) {
       ${profileSettings?.autoLocation && location ? `- Mention location: ${location}.` : ""}
       ${profileSettings?.autoCTA ? `- Include a "Visit us" or "Shop now" call to action.` : ""}
 
-      Return a JSON array of 3 objects with these exact keys:
+      Return a JSON array of exactly 2 objects with these exact keys:
       [
         {
-          "caption": "string",
-          "hashtags": "string (space separated hashtags)",
-          "recommended": boolean (Make ONLY ONE of the 3 options recommended: true)
+          "platform": "facebook",
+          "caption": "string (Optimized for Facebook: Community-focused, friendly, short paragraphs, casual tone)",
+          "hashtags": "string (3-5 relevant hashtags)",
+          "recommended": true
+        },
+        {
+          "platform": "linkedin",
+          "caption": "string (Optimized for LinkedIn: Professional, educational, story-driven, business/craftsmanship focus, expert tone)",
+          "hashtags": "string (2-3 professional hashtags)",
+          "recommended": true
         }
-      ]`;
+      ]
+      
+      CRITICAL DIFFERENTIATION RULES:
+      1. UNIQUE HOOKS: The opening sentence MUST be completely different for each platform.
+      2. UNIQUE TONES: 
+         - Facebook: Persona: 'The Friendly Neighbor'. Use more emojis, speak like a neighbor, focus on the immediate joy of the harvest/event.
+         - LinkedIn: Persona: 'The Professional Craftsman'. Use fewer emojis, speak like a business owner/expert, focus on the 'why', the craftsmanship, or business of farming.
+      3. UNIQUE STRUCTURES: Vary the sentence lengths and paragraph breaks between the two.
+      4. ZERO OVERLAP: If the Facebook post starts with 'Exciting news!', the LinkedIn post MUST NOT.
+      5. NO COPY-PASTING: They should feel like they were written by two different people.`;
 
         // Build prompt based on content type
         let prompt: string;
 
         if (isHarvest) {
-            prompt = `You are a social media expert for local farmers. Generate 3 distinct high-engagement social media caption options for a recent harvest at ${farmName}${location ? ` in ${location}` : ""}.
+            prompt = `You are a social media expert for local farmers. Generate 2 distinct high-engagement social media captions for a recent harvest at ${farmName}${location ? ` in ${location}` : ""}.
+            Option 1 should be optimized for Facebook (visual, friendly, community-focused).
+            Option 2 should be optimized for LinkedIn (professional, story-driven, business or farming insights).
 
       Brand Voice: ${brandVoice}
       ${farmContext ? `Farm Context:\n      ${farmContext}` : ""}
@@ -109,11 +166,18 @@ export async function POST(req: Request) {
       - Variety: ${harvestData.variety || "N/A"}
       - Quantity: ${harvestData.quantity || ""} ${harvestData.unit || ""}
       - Context/Notes: ${harvestData.notes || "N/A"}
-      - Tone: ${toneInstructions}
+
+      Tone Guide:
+      - Length: ${contentLength === 'short' ? 'Short (2-4 sentences)' : 'Long (8-15 sentences)'}
+      - Platform Specifics:
+        - Facebook: ${contentLength === 'short' ? 'Punchy, neighborly, high energy.' : `Story-rich, community-driven, following: ${longCopyInstructions}`}
+        - LinkedIn: ${contentLength === 'short' ? 'Professional update, business insight, direct.' : `Educational, professional storytelling, following: ${longCopyInstructions}`}
+      - Emoji Usage: ${emojiPreference}. (High for FB, Low for LI).
+
       ${sharedRequirements}`;
 
         } else if (contentType === "behind-scenes") {
-            prompt = `You are a social media expert for local farmers. Generate 3 engaging behind-the-scenes social media captions for ${farmName}${location ? ` in ${location}` : ""}.
+            prompt = `You are a social media expert for local farmers. Generate 2 engaging platform-specific behind-the-scenes social media captions (one for Facebook, one for LinkedIn) for ${farmName}${location ? ` in ${location}` : ""}.
 
       Brand Voice: ${brandVoice}
       ${farmContext ? `Farm Context:\n      ${farmContext}` : ""}
@@ -122,13 +186,18 @@ export async function POST(req: Request) {
       - Activity/Topic: ${contentData.primaryField}
       - Featured person: ${contentData.secondaryField || "N/A"}
       - Context: ${contentData.details || "N/A"}
-      - Tone: ${toneInstructions}
+      Tone Guide:
+      - Length: ${contentLength === 'short' ? 'Short (2-4 sentences)' : 'Long (8-15 sentences)'}
+      - Platform Specifics:
+        - Facebook: ${contentLength === 'short' ? 'Punchy, neighborly, high energy.' : `Story-rich, community-driven, following: ${longCopyInstructions}`}
+        - LinkedIn: ${contentLength === 'short' ? 'Professional update, business insight, direct.' : `Educational, professional storytelling, following: ${longCopyInstructions}`}
+      - Emoji Usage: ${emojiPreference}. (High for FB, Low for LI).
 
       Goal: Make followers feel like they're right there on the farm. Humanise the brand, show the real work behind the food.
       ${sharedRequirements}`;
 
         } else if (contentType === "educational") {
-            prompt = `You are a social media expert for local farmers. Generate 3 educational social media captions for ${farmName}${location ? ` in ${location}` : ""} that teach followers something valuable.
+            prompt = `You are a social media expert for local farmers. Generate 2 educational platform-specific captions (Facebook/LinkedIn) for ${farmName}${location ? ` in ${location}` : ""} that teach followers something valuable.
 
       Brand Voice: ${brandVoice}
       ${farmContext ? `Farm Context:\n      ${farmContext}` : ""}
@@ -137,13 +206,18 @@ export async function POST(req: Request) {
       - Topic: ${contentData.primaryField}
       - Key takeaway: ${contentData.secondaryField || "N/A"}
       - Background/Facts: ${contentData.details || "N/A"}
-      - Tone: ${toneInstructions}
+      Tone Guide:
+      - Length: ${contentLength === 'short' ? 'Short (2-4 sentences)' : 'Long (8-15 sentences)'}
+      - Platform Specifics:
+        - Facebook: ${contentLength === 'short' ? 'Punchy, neighborly, high energy.' : `Story-rich, community-driven, following: ${longCopyInstructions}`}
+        - LinkedIn: ${contentLength === 'short' ? 'Professional update, business insight, direct.' : `Educational, professional storytelling, following: ${longCopyInstructions}`}
+      - Emoji Usage: ${emojiPreference}. (High for FB, Low for LI).
 
       Goal: Position the farmer as a knowledgeable, trustworthy expert. Make the audience smarter and more connected to their food source.
       ${sharedRequirements}`;
 
         } else if (contentType === "sustainability") {
-            prompt = `You are a social media expert for local farmers. Generate 3 compelling social media captions highlighting a sustainable farming practice at ${farmName}${location ? ` in ${location}` : ""}.
+            prompt = `You are a social media expert for local farmers. Generate 2 platform-specific captions highlighting a sustainable farming practice at ${farmName}${location ? ` in ${location}` : ""}.
 
       Brand Voice: ${brandVoice}
       ${farmContext ? `Farm Context:\n      ${farmContext}` : ""}
@@ -152,13 +226,18 @@ export async function POST(req: Request) {
       - Practice/Initiative: ${contentData.primaryField}
       - Impact/Result: ${contentData.secondaryField || "N/A"}
       - How it works: ${contentData.details || "N/A"}
-      - Tone: ${toneInstructions}
+      Tone Guide:
+      - Length: ${contentLength === 'short' ? 'Short (2-4 sentences)' : 'Long (8-15 sentences)'}
+      - Platform Specifics:
+        - Facebook: ${contentLength === 'short' ? 'Punchy, neighborly, high energy.' : `Story-rich, community-driven, following: ${longCopyInstructions}`}
+        - LinkedIn: ${contentLength === 'short' ? 'Professional update, business insight, direct.' : `Educational, professional storytelling, following: ${longCopyInstructions}`}
+      - Emoji Usage: ${emojiPreference}. (High for FB, Low for LI).
 
       Goal: Inspire pride in eco-conscious farming. Build brand credibility and community trust.
       ${sharedRequirements}`;
 
         } else if (contentType === "recipe") {
-            prompt = `You are a social media expert for local farmers. Generate 3 mouthwatering recipe or cooking tip social media captions for ${farmName}${location ? ` in ${location}` : ""}.
+            prompt = `You are a social media expert for local farmers. Generate 2 mouthwatering platform-specific recipe or cooking tip captions for ${farmName}${location ? ` in ${location}` : ""}.
 
       Brand Voice: ${brandVoice}
       ${farmContext ? `Farm Context:\n      ${farmContext}` : ""}
@@ -168,13 +247,18 @@ export async function POST(req: Request) {
       - Main ingredient: ${contentData.secondaryField || "N/A"}
       - Serves/Prep time: ${contentData.extra1 || "N/A"}
       - Steps/Tips: ${contentData.details || "N/A"}
-      - Tone: ${toneInstructions}
+      Tone Guide:
+      - Length: ${contentLength === 'short' ? 'Short (2-4 sentences)' : 'Long (8-15 sentences)'}
+      - Platform Specifics:
+        - Facebook: ${contentLength === 'short' ? 'Punchy, neighborly, high energy.' : `Story-rich, community-driven, following: ${longCopyInstructions}`}
+        - LinkedIn: ${contentLength === 'short' ? 'Professional update, business insight, direct.' : `Educational, professional storytelling, following: ${longCopyInstructions}`}
+      - Emoji Usage: ${emojiPreference}. (High for FB, Low for LI).
 
       Goal: Make followers hungry, drive them to buy the featured produce, and position the farm as a lifestyle brand.
       ${sharedRequirements}`;
 
         } else if (contentType === "event") {
-            prompt = `You are a social media expert for local farmers. Generate 3 exciting event announcement captions for ${farmName}${location ? ` in ${location}` : ""}.
+            prompt = `You are a social media expert for local farmers. Generate 2 exciting platform-specific event announcement captions for ${farmName}${location ? ` in ${location}` : ""}.
 
       Brand Voice: ${brandVoice}
       ${farmContext ? `Farm Context:\n      ${farmContext}` : ""}
@@ -184,7 +268,12 @@ export async function POST(req: Request) {
       - Date & Time: ${contentData.secondaryField || "N/A"}
       - Location: ${contentData.extra1 || "N/A"}
       - What to expect: ${contentData.details || "N/A"}
-      - Tone: ${toneInstructions}
+      Tone Guide:
+      - Length: ${contentLength === 'short' ? 'Short (2-4 sentences)' : 'Long (8-15 sentences)'}
+      - Platform Specifics:
+        - Facebook: ${contentLength === 'short' ? 'Punchy, neighborly, high energy.' : `Story-rich, community-driven, following: ${longCopyInstructions}`}
+        - LinkedIn: ${contentLength === 'short' ? 'Professional update, business insight, direct.' : `Educational, professional storytelling, following: ${longCopyInstructions}`}
+      - Emoji Usage: ${emojiPreference}. (High for FB, Low for LI).
 
       Goal: Drive attendance, create excitement, and encourage sharing with friends.
       ${sharedRequirements}`;
@@ -193,12 +282,11 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Unknown content type" }, { status: 400 });
         }
 
-        // TIER 1 - Gemini models
+        // TIER 1 - Gemini models (Prioritizing Speed and Intelligence)
         const modelsToTry = [
-            "gemini-2.5-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash-exp"
+            "gemini-2.0-flash-exp",   // Our latest and fastest model
+            "gemini-1.5-flash",       // Highly reliable, stable fallback
+            "gemini-1.5-pro",         // Smartest fallback for complex requests
         ];
 
         for (const modelName of modelsToTry) {
@@ -217,16 +305,20 @@ export async function POST(req: Request) {
                 const usage = response.usageMetadata;
 
                 try {
-                    const options = JSON.parse(text);
-                    return NextResponse.json({
-                        options,
-                        source: modelName,
-                        usage: {
-                            promptTokens: usage?.promptTokenCount,
-                            completionTokens: usage?.candidatesTokenCount,
-                            totalTokens: usage?.totalTokenCount
-                        }
-                    });
+                    const parsed = JSON.parse(text);
+                    const options = parseAIResponse(parsed);
+
+                    if (options.length > 0) {
+                        return NextResponse.json({
+                            options,
+                            source: modelName,
+                            usage: {
+                                promptTokens: usage?.promptTokenCount,
+                                completionTokens: usage?.candidatesTokenCount,
+                                totalTokens: usage?.totalTokenCount
+                            }
+                        });
+                    }
                 } catch (parseError) {
                     console.error(`Model ${modelName} failed to return valid JSON:`, text);
                     continue;
@@ -253,34 +345,12 @@ export async function POST(req: Request) {
                 const text = completion.choices[0].message.content;
                 if (text) {
                     const parsed = JSON.parse(text);
-                    let options = [];
+                    const options = parseAIResponse(parsed);
 
-                    // Robust check for the array in various possible keys
-                    if (Array.isArray(parsed)) {
-                        options = parsed;
-                    } else if (parsed.options && Array.isArray(parsed.options)) {
-                        options = parsed.options;
-                    } else if (parsed.captions && Array.isArray(parsed.captions)) {
-                        options = parsed.captions;
-                    } else if (parsed.results && Array.isArray(parsed.results)) {
-                        options = parsed.results;
-                    } else {
-                        // If it's an object containing arrays, use the first array found
-                        const firstArrayKey = Object.keys(parsed).find(key => Array.isArray(parsed[key]));
-                        if (firstArrayKey) {
-                            options = parsed[firstArrayKey];
-                        }
-                    }
-
-                    // Final safety: ensure we have at least something to show
                     if (options.length > 0) {
                         return NextResponse.json({
-                            options: options.slice(0, 3).map((opt: any) => ({
-                                caption: opt.caption || opt.text || "",
-                                hashtags: opt.hashtags || opt.tags || "",
-                                recommended: opt.recommended || false
-                            })),
-                            source: "GPT-5 Nano",
+                            options,
+                            source: "GPT-4o-mini",
                             usage: {
                                 promptTokens: completion.usage?.prompt_tokens,
                                 completionTokens: completion.usage?.completion_tokens,
@@ -290,7 +360,7 @@ export async function POST(req: Request) {
                     }
                 }
             } catch (error: any) {
-                console.error("GPT-5 Nano Parsing Error:", error.message);
+                console.error("GPT-4o-mini Parsing Error:", error.message);
             }
         }
 
@@ -302,19 +372,16 @@ export async function POST(req: Request) {
 
         const fallbackOptions = [
             {
+                platform: "facebook",
                 caption: `Freshly harvested today! 🌿 Our ${type}${varietyStr} is looking absolutely beautiful and ready for your kitchen. Nothing beats the taste of produce that was still in the soil just hours ago. Who else is planning their meals around what's fresh this week?`,
                 hashtags: `#localharvest #freshpicked #${type.toLowerCase().replace(/\s+/g, '')} #farmtotable`,
                 recommended: true
             },
             {
-                caption: `Bounty of the day: ${harvestData.quantity || ""} ${harvestData.unit || ""} of fresh ${type}${varietyStr}! ✨ We put a lot of love into growing these, and it's so rewarding to see them reach peak perfection. Come grab some while they're still morning-fresh!`,
-                hashtags: `#farmlife #harvestday #supportlocal #healthyfood`,
-                recommended: false
-            },
-            {
-                caption: `Just hauled in a fresh batch of ${type}! The colors and aroma are incredible. Truly the best part of our day is sharing this organic goodness with our local community. What's your favorite way to prepare ${type}?`,
-                hashtags: `#organic #${type.toLowerCase().replace(/\s+/g, '')} #eatlocal #harvestnotes`,
-                recommended: false
+                platform: "linkedin",
+                caption: `Bounty of the day: ${harvestData.quantity || ""} ${harvestData.unit || ""} of fresh ${type}${varietyStr}! ✨ Professionally grown and harvested at peak perfection. We're proud to bring this level of quality to our local agricultural ecosystem. ${harvestData.notes || ""}`,
+                hashtags: `#farmlife #agriculture #harvest2024 #sustainability`,
+                recommended: true
             }
         ];
 

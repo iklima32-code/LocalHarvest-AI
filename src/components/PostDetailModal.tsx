@@ -34,10 +34,12 @@ function formatDate(dateStr: string) {
 interface Props {
     post: Post & { id: string; created_at: string };
     onClose: () => void;
-    onDelete?: () => Promise<void>;
+    onDelete?: () => void;
+    onEdit?: () => void;
+    onClone?: () => void;
 }
 
-export default function PostDetailModal({ post, onClose, onDelete }: Props) {
+export default function PostDetailModal({ post, onClose, onDelete, onEdit, onClone }: Props) {
     const router = useRouter();
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -68,10 +70,15 @@ export default function PostDetailModal({ post, onClose, onDelete }: Props) {
     const platformLabel =
         PLATFORM_LABELS[post.metadata?.platform ?? ""] ?? post.metadata?.platform ?? "";
 
-    const handleEdit = () => {
+    const handleEditAction = () => {
         onClose();
-        router.push(`/create/harvest/content?mode=edit&postId=${post.id}`);
+        if (post.status === 'published' && onClone) {
+            onClone();
+        } else if (onEdit) {
+            onEdit();
+        }
     };
+
 
     return (
         /* Backdrop */
@@ -94,14 +101,22 @@ export default function PostDetailModal({ post, onClose, onDelete }: Props) {
                     ×
                 </button>
 
-                {/* Image */}
-                {post.metadata?.imageUrl && (
-                    <div className="rounded-xl overflow-hidden mb-5 border border-gray-100">
-                        <img
-                            src={post.metadata.imageUrl}
-                            alt={post.title}
-                            className="w-full max-h-72 object-cover"
-                        />
+                {/* Media (Photo or Video) */}
+                {(post.metadata?.imageUrl || post.metadata?.videoUrl) && (
+                    <div className="rounded-xl overflow-hidden mb-5 border border-gray-100 bg-gray-900 shadow-inner">
+                        {post.metadata.imageUrl ? (
+                            <img
+                                src={post.metadata.imageUrl}
+                                alt={post.title}
+                                className="w-full max-h-72 object-cover"
+                            />
+                        ) : (
+                            <video
+                                src={post.metadata.videoUrl || undefined}
+                                controls
+                                className="w-full max-h-72 object-contain mx-auto shadow-2xl"
+                            />
+                        )}
                     </div>
                 )}
 
@@ -190,8 +205,8 @@ export default function PostDetailModal({ post, onClose, onDelete }: Props) {
                     </div>
                 ) : (
                     <div className="flex gap-3 pt-4 border-t border-gray-100">
-                        <button onClick={handleEdit} className="button-primary text-sm px-5 py-2.5">
-                            Edit Post
+                        <button onClick={handleEditAction} className="button-primary text-sm px-7 py-2.5 flex items-center gap-2">
+                            {post.status === 'draft' ? <>🚀 Post</> : post.status === 'published' ? 'Clone Post' : 'Edit Post'}
                         </button>
                         {onDelete && (
                             <button

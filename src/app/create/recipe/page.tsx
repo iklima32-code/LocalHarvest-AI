@@ -77,7 +77,7 @@ export default function RecipeWorkflow() {
                             {/* Details Group */}
                             <div className="bg-gray-50 p-8 rounded-2xl border-2 border-gray-100 space-y-6">
                                 <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                                    <span>📝</span> Content Details
+                                    <span>📝</span> Caption Details
                                 </h4>
 
                                 <div className="space-y-6">
@@ -154,43 +154,6 @@ export default function RecipeWorkflow() {
                                 </div>
                             </div>
 
-                            {/* Content Style Group */}
-                            <div className="bg-gray-50 p-8 rounded-2xl border-2 border-gray-100">
-                                <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-6">
-                                    <span>📏</span> Content Style
-                                </h4>
-                                <div className="space-y-4">
-                                    <div className="flex gap-4 p-1 bg-gray-200 rounded-xl">
-                                        {[
-                                            { id: "short", label: "Short Copy" },
-                                            { id: "long", label: "Long Copy" },
-                                        ].map((style) => (
-                                            <button
-                                                key={style.id}
-                                                type="button"
-                                                onClick={() =>
-                                                    setFormData({
-                                                        ...formData,
-                                                        contentLength: style.id as "short" | "long",
-                                                    } as ContentFormData)
-                                                }
-                                                className={`flex-1 py-3 rounded-lg font-bold transition-all ${
-                                                    formData.contentLength === style.id
-                                                        ? "bg-white text-harvest-green shadow-sm"
-                                                        : "text-gray-500 hover:text-harvest-green"
-                                                }`}
-                                            >
-                                                <span className="text-sm">{style.label}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <p className="text-xs text-gray-500 italic mt-2">
-                                        {formData.contentLength === "short"
-                                            ? "Short copy is great for quick updates. (1-2 sentences, quick & punchy)"
-                                            : "Long copy uses storytelling to stop the scroll. (8-15 sentences, engaging)"}
-                                    </p>
-                                </div>
-                            </div>
 
                             {/* Photo Management */}
                             <PhotoManager
@@ -272,12 +235,50 @@ export default function RecipeWorkflow() {
                                 </div>
                             )}
 
+                            {/* Content Style Group */}
+                            <div className="bg-gray-50 p-8 rounded-2xl border-2 border-gray-100 mt-10">
+                                <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-6">
+                                    <span>📏</span> Caption Style
+                                </h4>
+                                <div className="space-y-4">
+                                    <div className="flex gap-4 p-1 bg-gray-200 rounded-xl">
+                                        {[
+                                            { id: "short", label: "Short Copy" },
+                                            { id: "long", label: "Long Copy" },
+                                        ].map((style) => (
+                                            <button
+                                                key={style.id}
+                                                type="button"
+                                                onClick={() =>
+                                                    setFormData({
+                                                        ...formData,
+                                                        contentLength: style.id as "short" | "long",
+                                                    } as ContentFormData)
+                                                }
+                                                className={`flex-1 py-3 rounded-lg font-bold transition-all ${
+                                                    formData.contentLength === style.id
+                                                        ? "bg-white text-harvest-green shadow-sm"
+                                                        : "text-gray-500 hover:text-harvest-green"
+                                                }`}
+                                            >
+                                                <span className="text-sm">{style.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-gray-500 italic mt-2">
+                                        {formData.contentLength === "short"
+                                            ? "Short copy is great for quick updates. (1-2 sentences, quick & punchy)"
+                                            : "Long copy uses storytelling to stop the scroll. (8-15 sentences, engaging)"}
+                                    </p>
+                                </div>
+                            </div>
+
                             <div className="pt-5 flex flex-col items-center gap-4">
                                 <button
                                     type="submit"
                                     className="button-primary w-full justify-center text-xl py-5 shadow-xl hover:shadow-2xl"
                                 >
-                                    Generate Content with AI ✨
+                                    Generate Caption with AI ✨
                                 </button>
                                 <button
                                     type="button"
@@ -288,7 +289,7 @@ export default function RecipeWorkflow() {
                                     }}
                                     className="text-harvest-green font-bold hover:underline py-1 transition-all"
                                 >
-                                    Write my own content
+                                    Write my own caption
                                 </button>
                             </div>
                         </form>
