@@ -18,6 +18,7 @@ interface PhotoManagerProps {
         notes: string;
     };
     maxSelection?: number;
+    onDetectProduce?: (produce: string, variety: string) => void;
 }
 
 export default function PhotoManager({
@@ -26,7 +27,8 @@ export default function PhotoManager({
     onSelectVideo,
     selectedVideos = [],
     harvestData,
-    maxSelection = 4
+    maxSelection = 4,
+    onDetectProduce,
 }: PhotoManagerProps) {
     const [mediaMode, setMediaMode] = useState<"photo" | "video">("photo");
     const [activeTab, setActiveTab] = useState<"upload" | "gallery" | "ai">("gallery");
@@ -58,6 +60,8 @@ export default function PhotoManager({
     const [promptSource, setPromptSource] = useState<string | null>(null);
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [successMessage, setSuccessMessage] = useState("");
+    const [detectBanner, setDetectBanner] = useState<{ produce: string; variety: string; confidence: string } | null>(null);
+    const [isDetecting, setIsDetecting] = useState(false);
 
     useEffect(() => {
         const fetchProfile = async () => {
@@ -78,6 +82,28 @@ export default function PhotoManager({
         emojiUsage:     profile.emoji_usage,
         defaultHashtags: profile.default_hashtags,
     } : null;
+
+    const detectProduce = async (imageUrl: string) => {
+        if (!onDetectProduce) return;
+        setIsDetecting(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
+            const res = await fetch("/api/detect-produce", {
+                method: "POST",
+                headers,
+                body: JSON.stringify({ imageUrl }),
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.isPlantBased && data.produce && data.confidence !== "low") {
+                setDetectBanner({ produce: data.produce, variety: data.variety, confidence: data.confidence });
+            }
+        } catch { } finally {
+            setIsDetecting(false);
+        }
+    };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -115,6 +141,9 @@ export default function PhotoManager({
                 const newUrl = data.signedUrl;
                 if (onSelect) {
                     onSelect(newUrl);
+                }
+                if (successCount === 1) {
+                    detectProduce(newUrl);
                 }
             }
         });
@@ -736,21 +765,59 @@ export default function PhotoManager({
             {/* Tab Contents */}
             <div className="min-h-[200px]">
                 {activeTab === "upload" && (
-                    <div
-                        className="border-4 border-dashed border-gray-100 rounded-2xl p-10 text-center bg-gray-50 hover:border-harvest-green hover:bg-harvest-light transition-all cursor-pointer"
-                        onClick={() => document.getElementById('photo-input')?.click()}
-                    >
-                        <input
-                            type="file"
-                            id="photo-input"
-                            multiple
-                            hidden
-                            accept="image/*"
-                            onChange={handleFileUpload}
-                        />
-                        <div className="text-4xl mb-4">📷</div>
-                        <div className="text-base font-bold text-gray-800 mb-1">Upload Photos</div>
-                        <div className="text-xs text-gray-500">Add up to {maxSelection} photos</div>
+                    <div className="space-y-4">
+                        <div
+                            className="border-4 border-dashed border-gray-100 rounded-2xl p-10 text-center bg-gray-50 hover:border-harvest-green hover:bg-harvest-light transition-all cursor-pointer"
+                            onClick={() => document.getElementById('photo-input')?.click()}
+                        >
+                            <input
+                                type="file"
+                                id="photo-input"
+                                multiple
+                                hidden
+                                accept="image/*"
+                                onChange={handleFileUpload}
+                            />
+                            <div className="text-4xl mb-4">📷</div>
+                            <div className="text-base font-bold text-gray-800 mb-1">Upload Photos</div>
+                            <div className="text-xs text-gray-500">Add up to {maxSelection} photos</div>
+                        </div>
+                        {isDetecting && (
+                            <div className="flex items-center gap-3 p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-500">
+                                <div className="w-4 h-4 border-2 border-harvest-green border-t-transparent rounded-full animate-spin shrink-0"></div>
+                                Scanning photo for produce...
+                            </div>
+                        )}
+                        {detectBanner && onDetectProduce && (
+                            <div className="flex items-center gap-4 p-4 bg-green-50 border-2 border-harvest-green/30 rounded-xl animate-in fade-in slide-in-from-top-2">
+                                <span className="text-2xl">🌱</span>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-bold text-gray-800">
+                                        Detected: <span className="text-harvest-green">{detectBanner.variety ? `${detectBanner.variety} ${detectBanner.produce}` : detectBanner.produce}</span>
+                                    </p>
+                                    <p className="text-xs text-gray-500">Auto-fill the produce fields?</p>
+                                </div>
+                                <div className="flex gap-2 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            onDetectProduce(detectBanner.produce, detectBanner.variety);
+                                            setDetectBanner(null);
+                                        }}
+                                        className="px-3 py-1.5 bg-harvest-green text-white text-xs font-bold rounded-lg hover:brightness-110 transition-all"
+                                    >
+                                        Use it
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDetectBanner(null)}
+                                        className="px-3 py-1.5 bg-white border border-gray-200 text-xs font-bold text-gray-500 rounded-lg hover:bg-gray-50 transition-all"
+                                    >
+                                        Dismiss
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 

@@ -151,6 +151,14 @@ export default function HarvestWorkflow() {
                                         setVideos([url]); // max 1 video per post
                                     }
                                 }}
+                                onDetectProduce={(produce, variety) => {
+                                    setFormData({
+                                        ...formData,
+                                        produceType: produce,
+                                        variety: variety || formData.variety,
+                                    });
+                                    setErrors({ produceType: false });
+                                }}
                             />
 
                             {/* Selected Media Preview */}

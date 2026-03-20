@@ -57,6 +57,8 @@ function HarvestContentInner() {
     const [showSuccessModal, setShowSuccessModal] = useState<{ platform: string; message: string } | null>(null);
     const [platformForPreview, setPlatformForPreview] = useState<"facebook" | "linkedin">("facebook");
     const [publishProgress, setPublishProgress] = useState(0);
+    const [isRegeneratingHashtags, setIsRegeneratingHashtags] = useState(false);
+    const [isRegeneratingCaption, setIsRegeneratingCaption] = useState(false);
 
     const handleCopy = (e: React.MouseEvent | null, text: string, idx: number | null) => {
         if (e) e.stopPropagation();
@@ -64,6 +66,106 @@ function HarvestContentInner() {
         if (idx !== null) {
             setCopiedIdx(idx);
             setTimeout(() => setCopiedIdx(null), 2000);
+        }
+    };
+
+    const regenerateHashtags = async () => {
+        setIsRegeneratingHashtags(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
+            const res = await fetch("/api/generate-hashtags", {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                    produceType: harvestData.produceType,
+                    farmName: profile?.farm_name,
+                    location: profile?.location,
+                }),
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            const allTags = [
+                ...(data.brand || []),
+                ...(data.produce || []),
+                ...(data.seasonal || []),
+                ...(data.location || []),
+            ].map((t: string) => `#${t}`).join(" ");
+
+            setOptions(prev => prev.map(opt => ({ ...opt, hashtags: allTags })));
+            if (isPreviewEditing) setEditedHashtags(allTags);
+        } catch (err) {
+            console.error("Regenerate hashtags error:", err);
+        } finally {
+            setIsRegeneratingHashtags(false);
+        }
+    };
+
+    const regenerateCaption = async (platform: "facebook" | "linkedin") => {
+        setIsRegeneratingCaption(true);
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
+
+            if (platform === "facebook") {
+                const res = await fetch("/api/generate-social", {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({
+                        produceType: harvestData.produceType,
+                        variety: harvestData.variety,
+                        quantity: harvestData.quantity,
+                        unit: harvestData.unit,
+                        notes: harvestData.notes,
+                        contentLength: harvestData.contentLength,
+                    }),
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.facebook) {
+                    setOptions(prev => prev.map(opt =>
+                        opt.platform === "facebook" ? { ...opt, caption: data.facebook } : opt
+                    ));
+                    if (isPreviewEditing) setEditedCaption(data.facebook);
+                }
+            } else {
+                const res = await fetch("/api/generate-content", {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({
+                        harvestData,
+                        profileSettings: profile ? {
+                            brandVoice: profile.brand_voice,
+                            emojiUsage: profile.emoji_usage,
+                            defaultHashtags: profile.default_hashtags,
+                            autoLocation: profile.auto_location,
+                            autoCTA: profile.auto_cta,
+                            location: profile.location,
+                            farmName: profile.farm_name,
+                            farmType: profile.farm_type,
+                            farmDescription: profile.farm_description,
+                        } : null,
+                    }),
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                const liOption = data.options?.find((o: any) => o.platform === "linkedin");
+                if (liOption) {
+                    setOptions(prev => prev.map(opt =>
+                        opt.platform === "linkedin" ? { ...opt, caption: liOption.caption, hashtags: liOption.hashtags } : opt
+                    ));
+                    if (isPreviewEditing) {
+                        setEditedCaption(liOption.caption);
+                        setEditedHashtags(liOption.hashtags);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("Regenerate caption error:", err);
+        } finally {
+            setIsRegeneratingCaption(false);
         }
     };
 
@@ -274,14 +376,15 @@ function HarvestContentInner() {
         setIsPublishing(true);
         setPublishProgress(5);
         const results: string[] = [];
-        
+        const failures: string[] = [];
+
         const platformsToCount = Object.values(selectedPlatforms).filter(Boolean).length;
         const perPlatformIncrement = 90 / platformsToCount;
         let currentProgress = 5;
 
         const fbOption = options.find(o => o.platform === 'facebook') || options[0];
         const liOption = options.find(o => o.platform === 'linkedin') || options[0];
-        
+
         const photoToPost = photos.length > 0 ? photos[0] : null;
         const videoToPost = videos.length > 0 ? videos[0] : null;
 
@@ -317,6 +420,9 @@ function HarvestContentInner() {
                         await savePostToDB('published', 'linkedin');
                         currentProgress += perPlatformIncrement;
                         setPublishProgress(currentProgress);
+                    } else {
+                        const errData = await res.json().catch(() => ({}));
+                        failures.push(`LinkedIn (${errData.error || "not connected"})`);
                     }
                 }
             }
@@ -342,19 +448,24 @@ function HarvestContentInner() {
                         await savePostToDB('published', 'facebook');
                         currentProgress += perPlatformIncrement;
                         setPublishProgress(currentProgress);
+                    } else {
+                        const errData = await res.json().catch(() => ({}));
+                        failures.push(`Facebook Page (${errData.error || "not connected"})`);
                     }
                 }
             }
 
             // Facebook Personal was handled above at start to avoid blocked popups
 
-            if (results.length > 0) {
+            if (results.length > 0 || failures.length > 0) {
                 setPublishProgress(100);
+                const successMsg = results.length > 0 ? `Posted to: ${results.join(", ")}.` : "";
+                const failMsg = failures.length > 0 ? `Failed: ${failures.join(", ")}.` : "";
                 setShowSuccessModal({
-                    platform: "multiple",
-                    message: `Success! Posted to: ${results.join(", ")}.`
+                    platform: results.length > 0 ? "multiple" : "error",
+                    message: [successMsg, failMsg].filter(Boolean).join("\n")
                 });
-                await cleanupOriginalDraft();
+                if (results.length > 0) await cleanupOriginalDraft();
             } else {
                 alert("No platforms selected for publishing.");
             }
@@ -523,8 +634,28 @@ function HarvestContentInner() {
                                     </div>
                                 ) : (
                                     <>
-                                        <p className="text-gray-800 text-[14px] leading-relaxed mb-4 whitespace-pre-wrap">{option.caption}</p>
-                                        <div className="text-blue-600 font-medium text-[13px] mb-6">{option.hashtags}</div>
+                                        <div className="relative mb-4">
+                                            <p className="text-gray-800 text-[14px] leading-relaxed whitespace-pre-wrap">{option.caption}</p>
+                                            {(platformForPreview === "facebook" || platformForPreview === "linkedin") && (
+                                                <button
+                                                    onClick={() => regenerateCaption(platformForPreview)}
+                                                    disabled={isRegeneratingCaption}
+                                                    className="mt-2 text-[10px] font-black uppercase text-harvest-green hover:bg-harvest-light px-2 py-1 rounded transition-colors flex items-center gap-1 disabled:opacity-40"
+                                                >
+                                                    {isRegeneratingCaption ? "✨ Regenerating..." : "✨ Regenerate Caption"}
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="relative mb-6">
+                                            <div className="text-blue-600 font-medium text-[13px]">{option.hashtags}</div>
+                                            <button
+                                                onClick={regenerateHashtags}
+                                                disabled={isRegeneratingHashtags}
+                                                className="mt-1 text-[10px] font-black uppercase text-harvest-green hover:bg-harvest-light px-2 py-1 rounded transition-colors flex items-center gap-1 disabled:opacity-40"
+                                            >
+                                                {isRegeneratingHashtags ? "✨ Regenerating..." : "✨ Regenerate Hashtags"}
+                                            </button>
+                                        </div>
                                     </>
                                 )}
                                 {photos.length > 0 ? (
@@ -688,19 +819,27 @@ function HarvestContentInner() {
                 {showSuccessModal && (
                     <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-5 backdrop-blur-sm">
                         <div className="bg-white rounded-[40px] max-w-sm w-full p-10 text-center shadow-2xl">
-                            <div className="w-20 h-20 bg-harvest-green rounded-full flex items-center justify-center text-white text-4xl mx-auto mb-6">✓</div>
-                            <h3 className="text-2xl font-black mb-2">Success!</h3>
-                            <p className="text-gray-600 mb-8">{showSuccessModal.message}</p>
-                            <button 
+                            {showSuccessModal.platform === "error" ? (
+                                <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center text-red-500 text-4xl mx-auto mb-6">✕</div>
+                            ) : (
+                                <div className="w-20 h-20 bg-harvest-green rounded-full flex items-center justify-center text-white text-4xl mx-auto mb-6">✓</div>
+                            )}
+                            <h3 className="text-2xl font-black mb-2">
+                                {showSuccessModal.platform === "error" ? "Publishing Failed" : "Done!"}
+                            </h3>
+                            <p className="text-gray-600 mb-8 whitespace-pre-line">{showSuccessModal.message}</p>
+                            <button
                                 onClick={() => {
                                     setShowSuccessModal(null);
                                     if (showSuccessModal.platform === "draft" || showSuccessModal.platform === "multiple") {
                                         router.push('/recent');
+                                    } else if (showSuccessModal.platform === "error") {
+                                        router.push('/settings');
                                     }
-                                }} 
+                                }}
                                 className="w-full py-4 bg-gray-900 text-white font-bold rounded-2xl"
                             >
-                                {showSuccessModal.platform === "draft" ? "View My Posts" : "Excellent"}
+                                {showSuccessModal.platform === "draft" ? "View My Posts" : showSuccessModal.platform === "error" ? "Go to Settings" : "Excellent"}
                             </button>
                         </div>
                     </div>
